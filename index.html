@@ -69,6 +69,7 @@ textarea{resize:vertical;min-height:70px;line-height:1.45}
 .tag.alt{background:#fde68a;color:#78350f}
 .tag.new{background:#d1fae5;color:#065f46}
 .tag.team{background:#dbeafe;color:#1e40af}
+.tag.cost{background:#ede9fe;color:#5b21b6}
 .ed{min-width:0}
 .hero{padding:16px 18px;border-bottom:1px solid var(--line);display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
 .hero .code{font-family:Consolas,'Courier New',monospace;font-size:26px;font-weight:700;color:var(--navy);overflow-wrap:anywhere;line-height:1.15}
@@ -177,7 +178,7 @@ textarea.out{width:100%;min-height:300px;font-family:Consolas,monospace;font-siz
     <div class="card bar">
       <div class="field" style="flex:1;min-width:240px"><label>Search style, code, name or fabric</label><input id="q" placeholder="e.g. oxford, OHAP0534, cheshire black" autocomplete="off"></div>
       <div class="field"><label>Show</label>
-        <select id="fShow"><option value="all">All styles</option><option value="changed">Changed in this editor</option><option value="team">Edited by the team (data.json)</option><option value="notimes">Missing machine or finishing times</option></select></div>
+        <select id="fShow"><option value="all">All styles</option><option value="changed">Changed in this editor</option><option value="team">Edited by the team (data.json)</option><option value="costing">From the costing app (not yet in the buffer app)</option><option value="notimes">Missing machine or finishing times</option></select></div>
       <button class="btn btn-navy" onclick="newStyle()">New style</button>
     </div>
     <div class="layout">
@@ -232,9 +233,10 @@ var LIB_KEY='tibard_woe_lists_v1';
            team's styleEdits/chartEdits from data.json. Never edited directly.
    EDITS = this editor's changes on top of BASE. Only what differs is kept, and only
            what differs is exported. Saved in this browser until exported.            */
-var BASE={styles:{},order:[],charts:{},chartCols:{},trimCosts:{},markers:{},team:{}};
+var BASE={styles:{},order:[],charts:{},chartCols:{},trimCosts:{},markers:{},team:{},costing:{}};
 var EDITS={styles:{},charts:{},chartCols:{}};
-var META={source:'snap',stamp:'',teamN:0};
+var META={source:'snap',stamp:'',teamN:0,costSrc:'',costStamp:''};
+var COSTPUB=null;   /* the costing app's published-data.json: quotes, SRs and converted products */
 var cur=null, tab='styles', q='', grp='all', bq='', bulkSel={}, curOp='replace';
 
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
@@ -274,7 +276,7 @@ function parseBuffer(html){
   return {styles:sm.styles,charts:sm.charts||{},chartCols:sm.chartCols||{},trimCosts:grab('TRIM_COSTS')||{},markers:grab('FABRIC_MARKERS')||{}};
 }
 function setBase(d,overlay){
-  BASE={styles:{},order:[],charts:clone(d.charts||{}),chartCols:clone(d.chartCols||{}),trimCosts:d.trimCosts||{},markers:d.markers||{},team:{}};
+  BASE={styles:{},order:[],charts:clone(d.charts||{}),chartCols:clone(d.chartCols||{}),trimCosts:d.trimCosts||{},markers:d.markers||{},team:{},costing:{}};
   d.styles.forEach(function(st){var c=String(st.code).toUpperCase();BASE.styles[c]=unify(st,BASE.trimCosts);BASE.order.push(c);});
   META.teamN=0;
   if(overlay){
@@ -287,6 +289,7 @@ function setBase(d,overlay){
   Object.keys(EDITS.styles).forEach(function(c){if(BASE.styles[c]&&JSON.stringify(strip(EDITS.styles[c]))===JSON.stringify(strip(BASE.styles[c])))delete EDITS.styles[c];});
   saveEdits();
   libBuild();
+  applyCosting();
 }
 function useSnapshot(){
   if(!SNAP){META.source='none';renderSrc();return;}
@@ -304,10 +307,12 @@ function liveLoad(){
 function renderSrc(){
   var p=$('srcPill'),t=$('srcTxt'),n=BASE.order.length;
   p.className='src '+(META.source==='live'?'live':'snap');
-  if(META.source==='live') t.textContent='Live · '+n+' styles'+(META.teamN?' · '+META.teamN+' team edit'+(META.teamN===1?'':'s'):'')+' · '+META.stamp;
-  else if(META.source==='snap') t.textContent='Snapshot '+META.stamp+' · '+n+' styles'+(META.teamN?' · '+META.teamN+' team edit'+(META.teamN===1?'':'s'):'');
+  var cn=Object.keys(BASE.costing).length,ct=cn?' · '+cn+' from costing':'';
+  if(META.source==='live') t.textContent='Live · '+n+' styles'+(META.teamN?' · '+META.teamN+' team edit'+(META.teamN===1?'':'s'):'')+ct+' · '+META.stamp;
+  else if(META.source==='snap') t.textContent='Snapshot '+META.stamp+' · '+n+' styles'+(META.teamN?' · '+META.teamN+' team edit'+(META.teamN===1?'':'s'):'')+ct;
   else t.textContent='No style data loaded';
-  p.title=META.source==='live'?'Read straight from '+BUFFER_URL+' and its data.json just now.':'Built-in copy of the buffer app data. Hosted on your GitHub Pages this refreshes live on every open; you can also press Load file and pick the buffer app index.html or data.json.';
+  p.title=(META.source==='live'?'Read straight from '+BUFFER_URL+' and its data.json just now.':'Built-in copy of the buffer app data. Hosted on your GitHub Pages this refreshes live on every open; you can also press Load file and pick the buffer app index.html or data.json.')
+    +(cn?' '+cn+' product'+(cn===1?'':'s')+' the buffer app does not have yet come from the costing app\'s published data ('+(META.costSrc==='live'?'read live':'loaded from file')+(META.costStamp?', published '+META.costStamp:'')+').':'');
 }
 function loadFileClick(){$('fileIn').value='';$('fileIn').click();}
 $('fileIn').addEventListener('change',function(e){
@@ -329,8 +334,13 @@ function loadText(name,txt){
     return;
   }
   var data;try{data=JSON.parse(txt);}catch(err){modal('Not valid JSON',name,'<p class="pcwarn">'+esc(err.message)+'</p>');return;}
+  if(data&&Array.isArray(data.srs)&&!data.styleEdits){ /* costing app published-data.json */
+    var before=Object.keys(BASE.costing).length;COSTPUB=data;META.costSrc='file';META.costStamp=data.publishedAt||'';applyCosting();
+    var now=Object.keys(BASE.costing).length,prods=data.srs.filter(function(s){return s&&s.productCode;}).length;
+    modal('Costing app publish loaded',name,'<p class="pcnote">'+prods+' converted product'+(prods===1?'':'s')+' in the file. '+now+' of them '+(now===1?'is':'are')+' not in the buffer app yet and now show in the list tagged <span class="tag cost">costing</span>; the rest already exist in the buffer app, whose copy is the one that prints, so that copy is kept.</p>');return;
+  }
   if(data&&data.styleEdits){ /* data.json */
-    var n=0;Object.keys(data.styleEdits).forEach(function(c){var st=data.styleEdits[c];if(!st)return;c=c.toUpperCase();if(!BASE.styles[c])BASE.order.push(c);BASE.styles[c]=unify(st,{});BASE.team[c]=st.importedAt||st.editedAt||true;n++;});
+    var n=0;Object.keys(data.styleEdits).forEach(function(c){var st=data.styleEdits[c];if(!st)return;c=c.toUpperCase();if(!BASE.styles[c])BASE.order.push(c);BASE.styles[c]=unify(st,{});BASE.team[c]=st.importedAt||st.editedAt||true;delete BASE.costing[c];n++;});
     Object.keys(data.chartEdits||{}).forEach(function(k){BASE.charts[k]=data.chartEdits[k];});Object.keys(data.chartColEdits||{}).forEach(function(k){BASE.chartCols[k]=data.chartColEdits[k];});
     META.teamN=Object.keys(BASE.team).length;renderSrc();renderAll();
     modal('Team edits applied',name,'<p class="pcnote">'+n+' style'+(n===1?'':'s')+' from data.json now sit on top of the baked-in master, exactly as the buffer app sees them.</p>');return;
@@ -347,20 +357,62 @@ function loadText(name,txt){
     saveEdits();if(k){cur=list[0].code.toUpperCase();showTab('styles');}renderAll();
     modal('Product pack added',name,'<p class="pcnote">'+k+' product'+(k===1?'':'s')+' from the costing app added as new styles. They are marked as changes and will be in the export.</p>');return;
   }
-  modal('Format not recognised',name,'<p class="pcwarn">This file is not the buffer app index.html, its data.json, the costing app index.html, a costing app _product.json, or an export from this editor.</p>');
+  modal('Format not recognised',name,'<p class="pcwarn">This file is not the buffer app index.html, its data.json, the costing app index.html or published-data.json, a costing app _product.json, or an export from this editor.</p>');
 }
 /* same mapping the buffer app applies to a costing export */
 function fromCosting(d){
   var code=String(d.code).toUpperCase();
   return unify({code:code,name:d.name||code,desc:d.desc||'',lectra:d.lectra||'',variant:d.variant||'',chart:d.chart||'',
     fabrics:(d.fabrics||[]).map(function(f){return [f[0]||'',f[1]||'',f[2]||'',(f[3]==null||f[3]==='')?null:f[3],(f[4]==null||f[4]==='')?null:f[4]];}),
-    trims:(d.trims||[]).map(function(t){return ['',t[1]||'',(t[2]===''||t[2]==null)?'':t[2],t[0]||'',null];}),
+    trims:(d.trims||[]).map(function(t){var k=String(t[0]||'').toUpperCase();return [(k&&LIB.trimLabel[k])||'',t[1]||'',(t[2]===''||t[2]==null)?'':t[2],t[0]||'',(t[3]==null||t[3]==='')?null:t[3]];}),
     mfg:d.mfg||[],fin:d.fin||[],machMins:d.machMins==null?null:d.machMins,finMins:d.finMins==null?null:d.finMins,
     cutBatch:d.cutBatch||1,cutMins:d.cutMins||0,oneSize:!!d.oneSize,
     markerMain:d.markerMain||'',markerMesh:d.markerMesh||'',markerLen:d.markerLen||null,layQty:d.layQty||null,
     hasMesh:!!d.hasMesh,meshLen:d.meshLen||null,meshLay:d.meshLay||null,sr:d.sr||'',srVersion:d.srVersion||null,customer:d.customer||'',
     brandType:d.brandType||'',brandPlace:d.brandPlace||'',logoImg:d.logoImg||'',placeImg:d.placeImg||''},{});
 }
+
+/* ═══════════ products converted in the costing app ═══════════
+   The costing app publishes its quotes, SRs and converted products to published-data.json. A record with a
+   productCode is mapped exactly as the costing app's own "Download for buffer app" button maps it, then sits
+   in BASE like a buffer style — but only when the buffer app does not already hold that code. Once a product
+   has been imported and published in the buffer app, that copy is the one that prints, so it wins.           */
+function costingProduct(s){
+  var pos=function(v){v=parseFloat(v);return (isNaN(v)||v<=0)?null:v;},lines=function(v){return String(v||'').split('\n').map(function(x){return x.trim();}).filter(Boolean);};
+  var meas=Array.isArray(s.meas)?s.meas:[],branded=s.brandType&&s.brandType!=='None';
+  return {code:s.productCode,name:(s.garment||s.productCode)+(s.customer?' \u2014 '+s.customer:''),desc:s.desc||s.garment||'',lectra:s.lectra||'',variant:s.variant||'',
+    markerMain:s.markerMain||'',markerMesh:s.markerMesh||'',markerLen:pos(s.markerLen),layQty:pos(s.layQty),hasMesh:!!s.hasMesh,meshLen:pos(s.meshLen),meshLay:pos(s.meshLay),
+    chart:meas.length?(s.productCode+'-MEAS'):'',chartCols:meas.length?['Measurement','Value']:null,
+    chartRows:meas.map(function(m){return [m.label||'',String(m.value==null?'':m.value)+(m.value2?' \u00d7 '+m.value2:'')];}),
+    fabrics:(s.fabrics||[]).map(function(f){return [f.name||f.code||'',f.code||'',f.loc||'',pos(f.rating),pn(f.cost)||null];}),
+    trims:(s.trims||[]).map(function(x){return [x.code||'',x.desc||'',x.qty||'',pn(x.cost)||null];}),
+    mfg:lines(s.mfg),fin:lines(s.fin),machMins:pn(s.machMins)||null,finMins:pn(s.finMins)||null,cutBatch:pn(s.cutBatch)||35,cutMins:pn(s.cutMins)||15,
+    oneSize:true,sr:s.ref||'',srVersion:s.version||1,customer:s.customer||'',brandType:s.brandType||'None',brandPlace:s.brandPlace||'',
+    logoImg:(branded&&s.logoImg)?s.logoImg:'',placeImg:(branded&&s.placeImg)?s.placeImg:''};
+}
+function applyCosting(){
+  if(!COSTPUB||!Array.isArray(COSTPUB.srs)||!BASE.order.length)return;
+  var added=0;
+  COSTPUB.srs.forEach(function(s){
+    if(!s||!s.productCode)return;var c=String(s.productCode).toUpperCase();
+    if(BASE.styles[c]&&!BASE.costing[c])return;           /* the buffer app has it: that copy wins */
+    var d=costingProduct(s);BASE.styles[c]=unify(fromCosting(d),{});BASE.costing[c]=s.convertedAt||COSTPUB.publishedAt||true;
+    if(BASE.order.indexOf(c)<0)BASE.order.push(c);
+    if(d.chart&&d.chartRows.length&&!BASE.charts[d.chart]){BASE.charts[d.chart]=d.chartRows;if(d.chartCols)BASE.chartCols[d.chart]=d.chartCols;}
+    added++;
+  });
+  if(!added)return;
+  /* an earlier "new style" made from the same product file is now just an unchanged costing product */
+  Object.keys(EDITS.styles).forEach(function(c){if(BASE.costing[c]&&JSON.stringify(strip(EDITS.styles[c]))===JSON.stringify(strip(BASE.styles[c])))delete EDITS.styles[c];});
+  saveEdits();stepDatalists();renderSrc();renderAll();
+}
+function costingLoad(){
+  if(!/^https?:/.test(location.protocol)||location.hostname.indexOf('github.io')<0)return;
+  fetch(COSTING_URL+'published-data.json?t='+Date.now()).then(function(r){if(!r.ok)throw 0;return r.json();})
+    .then(function(d){if(!d||!Array.isArray(d.srs))return;COSTPUB=d;META.costSrc='live';META.costStamp=d.publishedAt||'';applyCosting();})
+    .catch(function(){});
+}
+function costingOnly(){return BASE.order.filter(function(c){return BASE.costing[c]&&!BASE.team[c];});}
 
 /* ═══════════ edits ═══════════ */
 function strip(s){var o=clone(s);delete o.editedAt;return o;}
@@ -425,6 +477,7 @@ function visible(){
     if(grp!=='all'&&groupOf(c)!==grp)return false;
     if(show==='changed'&&!isChanged(c))return false;
     if(show==='team'&&!BASE.team[c])return false;
+    if(show==='costing'&&!BASE.costing[c])return false;
     if(show==='notimes'&&!(s.machMins==null||s.finMins==null))return false;
     if(ql.length){var hay=(c+' '+s.name+' '+s.desc+' '+s.variant+' '+s.fabrics.map(function(f){return f[0]+' '+f[1];}).join(' ')+' '+(s.alias||[]).join(' ')).toLowerCase();
       if(!ql.every(function(w){return hay.indexOf(w)>=0;}))return false;}
@@ -444,7 +497,7 @@ function renderList(){
   var h='';
   v.forEach(function(c){var s=get(c);var sz=sizesFor(s).length;
     h+='<li class="'+(c===cur?'on':'')+'" onclick="pick(\''+esc(c)+'\')"><span class="c">'+esc(c).replace('--','<span style="color:#7A5B14">--</span>')
-      +(isChanged(c)?'<span class="tag '+(isNew(c)?'new':'alt')+'">'+(isNew(c)?'new':'changed')+'</span>':'')+(BASE.team[c]&&!isChanged(c)?'<span class="tag team">team</span>':'')+'</span>'
+      +(isChanged(c)?'<span class="tag '+(isNew(c)?'new':'alt')+'">'+(isNew(c)?'new':'changed')+'</span>':'')+(BASE.team[c]&&!isChanged(c)?'<span class="tag team">team</span>':'')+(BASE.costing[c]?'<span class="tag cost">costing</span>':'')+'</span>'
       +'<span class="n">'+esc(s.name||'')+' · '+sz+' code'+(sz===1?'':'s')+(s.machMins==null?' · no times':'')+'</span></li>';});
   $('styleList').innerHTML=h||'<li style="color:var(--mut);cursor:default">Nothing matches.</li>';
 }
@@ -474,7 +527,8 @@ function renderEditor(){
   var c=s.code,sizes=sizesFor(s),ch=isChanged(c),nw=isNew(c),sized=!(s.oneSize||c.indexOf('--')<0);
   var codesTxt=sizes.length>1?('<b>all '+sizes.length+' product codes</b>: <span class="mono">'+esc(sizes[0].code)+'</span> through <span class="mono">'+esc(sizes[sizes.length-1].code)+'</span>'):'<b>one product code</b>: <span class="mono">'+esc(sizes[0]?sizes[0].code:c)+'</span>';
   var h='<div class="hero"><div><div class="code">'+esc(c).replace('--','<span class="slot">--</span>')+'</div><div class="name">'+esc(s.name||'(no name yet)')+'</div>'
-    +'<div class="cas">One edit here updates '+codesTxt+'.'+(s.colourways?' The token after the dash is a colour code on this style.':(sizes.length>1?' Sizes come from the size chart below; markers are looked up per size from the cutting room sheet.':''))+'</div></div>'
+    +'<div class="cas">One edit here updates '+codesTxt+'.'+(s.colourways?' The token after the dash is a colour code on this style.':(sizes.length>1?' Sizes come from the size chart below; markers are looked up per size from the cutting room sheet.':''))
+    +(BASE.costing[c]?'<br><span class="tag cost">costing</span> Converted in the costing app'+(s.sr?' from '+esc(s.sr):'')+' and not in the buffer app yet. It goes into the export (with or without edits) so the buffer app receives it; once published there, the buffer app\'s copy takes over.':'')+'</div></div>'
     +'<div class="acts">'+(ch?'<span class="tag '+(nw?'new':'alt')+'" style="align-self:center;padding:5px 10px">'+(nw?'New style':'Changed: '+esc(sections(c).join(', ')))+'</span>':(BASE.team[c]?'<span class="tag team" style="align-self:center;padding:5px 10px">Team edit in data.json</span>':''))
     +'<button class="btn btn-sm" onclick="dupStyle()">Duplicate as another colour</button>'
     +'<button class="btn btn-sm" onclick="undoStyle()" '+(ch?'':'disabled')+'>'+(nw?'Discard new style':'Undo changes')+'</button></div></div>';
@@ -695,12 +749,15 @@ function opApply(){
 $('bq').addEventListener('input',function(e){bq=e.target.value;renderBulk();});
 
 /* ═══════════ export ═══════════ */
-function buildExport(all){
+function buildExport(all,withCosting){
   var codes=all?BASE.order.slice():changedCodes();
-  var styles=codes.map(function(c){var s=clone(get(c));s.mfg=tidySteps(s.mfg);s.fin=tidySteps(s.fin);if(isChanged(c))s.editedAt=today();return s;});
+  if(withCosting&&!all)costingOnly().forEach(function(c){if(codes.indexOf(c)<0)codes.push(c);});
+  var styles=codes.map(function(c){var s=clone(get(c));s.mfg=tidySteps(s.mfg);s.fin=tidySteps(s.fin);if(isChanged(c)||BASE.costing[c])s.editedAt=today();return s;});
   var charts={},cols={};
   Object.keys(EDITS.charts).forEach(function(k){if(chartChanged(k))charts[k]=EDITS.charts[k];});
   Object.keys(EDITS.chartCols).forEach(function(k){if(chartChanged(k))cols[k]=EDITS.chartCols[k];});
+  /* a costing product's measurement chart travels with it */
+  codes.forEach(function(c){if(!BASE.costing[c])return;var k=get(c).chart;if(k&&!(k in charts)){charts[k]=chartRows(k);var cc=chartCols(k);if(cc)cols[k]=cc;}});
   if(all){Object.keys(BASE.charts).forEach(function(k){if(!(k in charts))charts[k]=chartRows(k);});Object.keys(BASE.chartCols).forEach(function(k){if(!(k in cols))cols[k]=chartCols(k);});}
   return {source:'works-order-editor',exportedAt:new Date().toISOString(),mode:all?'all':'changes',styleCount:styles.length,styles:styles,charts:charts,chartCols:cols};
 }
@@ -713,15 +770,17 @@ function buildCSV(){
 }
 function openExport(){
   var n=changedCodes().length,ch=Object.keys(EDITS.charts).concat(Object.keys(EDITS.chartCols)).filter(function(k,i,a){return a.indexOf(k)===i&&chartChanged(k);}).length;
+  var co=costingOnly().filter(function(c){return !isChanged(c);}).length;
   var body='<div class="g2" style="margin-bottom:12px">'
     +'<label class="chk"><input type="radio" name="xm" value="changes" checked> Changes only — '+n+' style'+(n===1?'':'s')+(ch?' + '+ch+' chart'+(ch===1?'':'s'):'')+'</label>'
     +'<label class="chk"><input type="radio" name="xm" value="all"> Everything — all '+BASE.order.length+' styles</label>'
     +'<label class="chk"><input type="radio" name="xm" value="csv"> Per product code (.csv) for checking in Excel</label></div>'
+    +(co?'<label class="chk" style="margin-bottom:12px"><input type="checkbox" id="xCost" checked> Also include '+co+' unedited product'+(co===1?'':'s')+' from the costing app the buffer app does not have yet</label>':'')
     +'<div class="note">Import the JSON in the buffer app with <strong>Special Makes → Import from costing</strong>. Each style lands in the app\'s saved edits under its code, so an edited stock style replaces what the app prints for it and a new code is added — the baked-in master is left alone. Press Publish for team afterwards so data.json carries it to everyone.</div>'
     +'<textarea class="out" id="xOut" readonly style="margin-top:12px"></textarea>';
   modal('Export for buffer app','',body,[{l:'Copy',c:'',f:function(b){var t=$('xOut').value;if(navigator.clipboard)navigator.clipboard.writeText(t).then(function(){b.textContent='Copied';});else{$('xOut').select();}}},{l:'Download',c:'btn-gold',f:function(){var m=document.querySelector('[name=xm]:checked').value;var t=$('xOut').value;var nm=m==='csv'?'works-orders-per-code-'+today()+'.csv':'style-edits-'+(m==='all'?'all':'changes')+'-'+today()+'.json';dl(nm,t,m==='csv'?'text/csv':'application/json');}}]);
-  function fill(){var m=document.querySelector('[name=xm]:checked').value;$('xOut').value=m==='csv'?buildCSV():JSON.stringify(buildExport(m==='all'),null,1);}
-  document.querySelectorAll('[name=xm]').forEach(function(r){r.addEventListener('change',fill);});fill();
+  function fill(){var m=document.querySelector('[name=xm]:checked').value;var xc=$('xCost');$('xOut').value=m==='csv'?buildCSV():JSON.stringify(buildExport(m==='all',!xc||xc.checked),null,1);}
+  document.querySelectorAll('[name=xm],#xCost').forEach(function(r){r.addEventListener('change',fill);});fill();
 }
 function dl(name,text,type){try{var blob=new Blob([text],{type:type});var url=URL.createObjectURL(blob);var a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url);},1500);}catch(e){}}
 
@@ -825,7 +884,7 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')closeModal()
 /* ═══════════ start ═══════════ */
 $('q').addEventListener('input',function(e){q=e.target.value;renderList();});
 $('fShow').addEventListener('change',function(){renderChips();renderList();});
-(function(){ if(TIBARD_LOGO){$('hdrLogo').src=TIBARD_LOGO;}else{$('hdrLogo').style.display='none';} loadEdits(); libLoadStore(); liveLoad(); libLoad(); })();
+(function(){ if(TIBARD_LOGO){$('hdrLogo').src=TIBARD_LOGO;}else{$('hdrLogo').style.display='none';} loadEdits(); libLoadStore(); liveLoad(); libLoad(); costingLoad(); })();
 </script>
 </body>
 </html>
