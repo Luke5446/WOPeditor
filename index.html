@@ -456,7 +456,7 @@ function chartRows(k){return EDITS.charts[k]||BASE.charts[k]||[];}
 function chartCols(k){return EDITS.chartCols[k]||BASE.chartCols[k]||null;}
 function chartChanged(k){return (k in EDITS.charts)&&JSON.stringify(EDITS.charts[k])!==JSON.stringify(BASE.charts[k]||null)||(k in EDITS.chartCols)&&JSON.stringify(EDITS.chartCols[k])!==JSON.stringify(BASE.chartCols[k]||null);}
 function sections(c){
-  if(isNew(c))return['new style'];
+  if(!EDITS.styles[c])return[];if(isNew(c))return['new style'];
   var a=strip(EDITS.styles[c]),b=BASE.styles[c],out=[];
   var det=function(o){return JSON.stringify([o.code,o.name,o.desc,o.tol,o.oneSize,o.ladies,o.alias,o.customer]);};
   if(det(a)!==det(b))out.push('details');
@@ -779,7 +779,7 @@ function buildExport(all,withCosting){
   Object.keys(EDITS.charts).forEach(function(k){if(chartChanged(k))charts[k]=EDITS.charts[k];});
   Object.keys(EDITS.chartCols).forEach(function(k){if(chartChanged(k))cols[k]=EDITS.chartCols[k];});
   /* a costing product's measurement chart travels with it */
-  codes.forEach(function(c){if(!BASE.costing[c])return;var k=get(c).chart;if(k&&!(k in charts)){charts[k]=chartRows(k);var cc=chartCols(k);if(cc)cols[k]=cc;}});
+  codes.forEach(function(c){if(!BASE.costing[c])return;var k=get(c).chart;if(!k)return;if(!(k in charts))charts[k]=chartRows(k);if(!(k in cols)){var cc=chartCols(k);if(cc)cols[k]=cc;}});
   if(all){Object.keys(BASE.charts).forEach(function(k){if(!(k in charts))charts[k]=chartRows(k);});Object.keys(BASE.chartCols).forEach(function(k){if(!(k in cols))cols[k]=chartCols(k);});}
   return {source:'works-order-editor',exportedAt:new Date().toISOString(),mode:all?'all':'changes',styleCount:styles.length,styles:styles,charts:charts,chartCols:cols};
 }
@@ -798,7 +798,7 @@ function openExport(){
     +'<label class="chk"><input type="radio" name="xm" value="all"> Everything — all '+BASE.order.length+' styles</label>'
     +'<label class="chk"><input type="radio" name="xm" value="csv"> Per product code (.csv) for checking in Excel</label></div>'
     +(co?'<label class="chk" style="margin-bottom:12px"><input type="checkbox" id="xCost" checked> Also include '+co+' unedited product'+(co===1?'':'s')+' from the costing app the buffer app does not have yet</label>':'')
-    +'<div class="note">Import the JSON in the buffer app with <strong>Special Makes → Import from costing</strong>. Each style lands in the app\'s saved edits under its code, so an edited stock style replaces what the app prints for it and a new code is added — the baked-in master is left alone. Press Publish for team afterwards so data.json carries it to everyone.</div>'
+    +'<div class="note">Send the JSON to the PM to load in the buffer app with <strong>Special Makes → Import from costing</strong> (the same button as a costing export). Each style lands in the app\'s saved edits under its code, so an edited stock style replaces what the app prints for it and a new code is added under Imported from costing — the baked-in master is left alone. The PM then presses <strong>Publish for team</strong> so data.json carries it to everyone, and this editor picks it up on the next open.</div>'
     +'<textarea class="out" id="xOut" readonly style="margin-top:12px"></textarea>';
   modal('Export for buffer app','',body,[{l:'Copy',c:'',f:function(b){var t=$('xOut').value;if(navigator.clipboard)navigator.clipboard.writeText(t).then(function(){b.textContent='Copied';});else{$('xOut').select();}}},{l:'Download',c:'btn-gold',f:function(){var m=document.querySelector('[name=xm]:checked').value;var t=$('xOut').value;var nm=m==='csv'?'works-orders-per-code-'+today()+'.csv':'style-edits-'+(m==='all'?'all':'changes')+'-'+today()+'.json';dl(nm,t,m==='csv'?'text/csv':'application/json');}}]);
   function fill(){var m=document.querySelector('[name=xm]:checked').value;var xc=$('xCost');$('xOut').value=m==='csv'?buildCSV():JSON.stringify(buildExport(m==='all',!xc||xc.checked),null,1);}
