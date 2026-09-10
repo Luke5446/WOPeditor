@@ -312,7 +312,7 @@ function renderSrc(){
   else if(META.source==='snap') t.textContent='Snapshot '+META.stamp+' · '+n+' styles'+(META.teamN?' · '+META.teamN+' team edit'+(META.teamN===1?'':'s'):'')+ct;
   else t.textContent='No style data loaded';
   p.title=(META.source==='live'?'Read straight from '+BUFFER_URL+' and its data.json just now.':'Built-in copy of the buffer app data. Hosted on your GitHub Pages this refreshes live on every open; you can also press Load file and pick the buffer app index.html or data.json.')
-    +(cn?' '+cn+' product'+(cn===1?'':'s')+' the buffer app does not have yet come from the costing app\'s published data ('+(META.costSrc==='live'?'read live':'loaded from file')+(META.costStamp?', published '+META.costStamp:'')+').':'');
+    +(cn?' '+cn+' product'+(cn===1?'':'s')+' the buffer app does not have yet come from the costing app\'s published data ('+(META.costSrc==='live'?'read live':'loaded from file')+(META.costFile?', '+META.costFile:'')+(META.costStamp?', published '+META.costStamp:'')+').':'');
 }
 function loadFileClick(){$('fileIn').value='';$('fileIn').click();}
 $('fileIn').addEventListener('change',function(e){
@@ -335,7 +335,8 @@ function loadText(name,txt){
   }
   var data;try{data=JSON.parse(txt);}catch(err){modal('Not valid JSON',name,'<p class="pcwarn">'+esc(err.message)+'</p>');return;}
   if(data&&Array.isArray(data.srs)&&!data.styleEdits){ /* costing app published-data.json */
-    var before=Object.keys(BASE.costing).length;COSTPUB=data;META.costSrc='file';META.costStamp=data.publishedAt||'';applyCosting();
+    if(COSTPUB&&newestPublish([{name:'loaded',pub:COSTPUB},{name:name,pub:data}]).name==='loaded'){modal('Older publish',name,'<p class="pcwarn">This file was published '+esc(data.publishedTS||data.publishedAt||'')+', earlier than the one already loaded ('+esc(META.costStamp)+'), so it was not used.</p>');return;}
+    COSTPUB=data;META.costSrc='file';META.costStamp=data.publishedTS||data.publishedAt||'';META.costFile=name;libBuild();applyCosting();
     var now=Object.keys(BASE.costing).length,prods=data.srs.filter(function(s){return s&&s.productCode;}).length;
     modal('Costing app publish loaded',name,'<p class="pcnote">'+prods+' converted product'+(prods===1?'':'s')+' in the file. '+now+' of them '+(now===1?'is':'are')+' not in the buffer app yet and now show in the list tagged <span class="tag cost">costing</span>; the rest already exist in the buffer app, whose copy is the one that prints, so that copy is kept.</p>');return;
   }
@@ -408,9 +409,30 @@ function applyCosting(){
 }
 function costingLoad(){
   if(!/^https?:/.test(location.protocol)||location.hostname.indexOf('github.io')<0)return;
-  fetch(COSTING_URL+'published-data.json?t='+Date.now()).then(function(r){if(!r.ok)throw 0;return r.json();})
-    .then(function(d){if(!d||!Array.isArray(d.srs))return;COSTPUB=d;META.costSrc='live';META.costStamp=d.publishedAt||'';applyCosting();})
-    .catch(function(){});
+  /* A browser saves a repeat download as "published-data (2).json" and GitHub keeps that name, so the costing
+     app reads every numbered variant and takes the newest. Do exactly the same: newest publish date, then
+     publish time, then upload time. */
+  var names=['published-data.json'];for(var n=1;n<=9;n++)names.push('published-data ('+n+').json');
+  var v='?t='+Date.now();
+  Promise.all(names.map(function(nm){
+    return fetch(COSTING_URL+encodeURI(nm)+v).then(function(r){if(!r.ok)throw 0;var lm=Date.parse(r.headers.get('last-modified')||'')||0;
+      return r.json().then(function(j){return {name:nm,lm:lm,pub:j};});}).catch(function(){return null;});
+  })).then(function(list){
+    var best=newestPublish(list);if(!best)return;
+    COSTPUB=best.pub;META.costSrc='live';META.costStamp=best.pub.publishedTS||best.pub.publishedAt||'';META.costFile=best.name;
+    libBuild();applyCosting();
+  }).catch(function(){});
+}
+function newestPublish(list){
+  var best=null;
+  (list||[]).forEach(function(c){
+    if(!c||!c.pub||!Array.isArray(c.pub.srs))return;
+    if(!best){best=c;return;}
+    var ka=[(c.pub.publishedTS||c.pub.publishedAt||'').slice(0,10),c.pub.publishedTS||'',c.lm||0];
+    var kb=[(best.pub.publishedTS||best.pub.publishedAt||'').slice(0,10),best.pub.publishedTS||'',best.lm||0];
+    for(var q=0;q<3;q++){if(ka[q]!==kb[q]){if(ka[q]>kb[q])best=c;break;}}
+  });
+  return best;
 }
 function costingOnly(){return BASE.order.filter(function(c){return BASE.costing[c]&&!BASE.team[c];});}
 
@@ -816,6 +838,7 @@ function libBuild(){
     if(ex){if(!ex.name&&o.name)ex.name=o.name;if(ex.cost==null&&cost!=null)ex.cost=cost;if(!ex.loc&&o.loc)ex.loc=o.loc;return;}
     LIB[kind][k]={code:String(o.code).trim(),name:o.name||'',cost:cost,loc:o.loc||''};LIB.order[kind].push(k);}
   PASTED.fabrics.forEach(function(r){put('fabrics',r);});PASTED.trims.forEach(function(r){put('trims',r);});
+  costingLists().fabrics.forEach(function(r){put('fabrics',r);});costingLists().trims.forEach(function(r){put('trims',r);});
   (LIBBASE.fabrics||[]).forEach(function(f){put('fabrics',{code:f[0],name:f[1],cost:f[2],loc:f[3]});});
   (LIBBASE.trims||[]).forEach(function(x){put('trims',{code:x[0],name:x[1],cost:x[2]});});
   /* codes the buffer app already uses, so everything on an existing works order is pickable too; remember which trim label goes with each code */
@@ -826,6 +849,13 @@ function libBuild(){
     s.trims.forEach(function(x){if(!x[3])return;put('trims',{code:x[3],name:x[1]||x[0],cost:x[4]});if(x[0]){var k=String(x[3]).toUpperCase();lab[k]=lab[k]||{};lab[k][x[0]]=(lab[k][x[0]]||0)+1;}});});
   Object.keys(lab).forEach(function(k){var best='',n=0;Object.keys(lab[k]).forEach(function(l){if(lab[k][l]>n){n=lab[k][l];best=l;}});if(best)LIB.trimLabel[k]=best;});
   libDatalists();stepDatalists();renderLib();
+}
+/* the trim & fabric lists pasted into the costing app, as carried by its publish (code, name, cost, unit, supplier) */
+function costingLists(){
+  var out={fabrics:[],trims:[]};if(!COSTPUB)return out;
+  (Array.isArray(COSTPUB.trimsList)?COSTPUB.trimsList:[]).forEach(function(x){if(x&&x.code)out.trims.push({code:x.code,name:x.name||'',cost:x.cost});});
+  (Array.isArray(COSTPUB.fabricsList)?COSTPUB.fabricsList:[]).forEach(function(x){if(!x||!x.code)return;var u=String(x.unit||'').trim();out.fabrics.push({code:x.code,name:x.name||'',cost:x.cost,loc:/^[A-Za-z]{1,2}\d{1,2}$/.test(u)?u:''});});
+  return out;
 }
 function libDatalists(){
   var fo=LIB.order.fabrics.map(function(k){var f=LIB.fabrics[k];return '<option value="'+esc(f.code)+'">'+esc(f.name)+(f.cost!=null?' — £'+f.cost+'/m':'')+(f.loc?' · '+esc(f.loc):'')+'</option>';});
@@ -851,7 +881,8 @@ function renderLib(){
 }
 function openLists(){
   var src=LIB.source==='live'?'read live from '+esc(COSTING_URL)+' just now':(LIB.source==='file'?'loaded from a file':'the built-in copy — hosted on GitHub Pages this refreshes live from the costing app on every open');
-  var body='<p class="pcnote">Fabric and trim codes come from the costing app\'s Sage price lists ('+esc(LIB.stamp)+'; '+src+'), plus every code already on a style in the buffer app. <strong>'+LIB.order.fabrics.length+' fabrics · '+LIB.order.trims.length+' trims.</strong> Type a code in a fabric or trim row, or pick from the drop-down, and the description, cost and location fill in.</p>'
+  var cl=costingLists();
+  var body='<p class="pcnote">Fabric and trim codes come from the costing app\'s Sage price lists ('+esc(LIB.stamp)+'; '+src+'), '+(cl.trims.length||cl.fabrics.length?'the lists pasted into the costing app and carried by its publish (<strong>'+cl.trims.length+' trims · '+cl.fabrics.length+' fabrics</strong>'+(META.costStamp?', published '+esc(META.costStamp):'')+'), ':'')+'plus every code already on a style in the buffer app. <strong>'+LIB.order.fabrics.length+' fabrics · '+LIB.order.trims.length+' trims.</strong> Type a code in a fabric or trim row, or pick from the drop-down, and the description, cost and location fill in.</p>'
     +'<div class="pcsec" style="margin-top:12px"><h4>Paste a price list <span class="r">pasted so far: '+PASTED.trims.length+' trims · '+PASTED.fabrics.length+' fabrics</span></h4><div class="in">'
     +'<p class="pcnote">Paste rows copied from Excel — the same columns the costing app takes: <strong>code, description, cost</strong>, then for fabrics the <strong>location</strong> (e.g. B7). Pasted rows sit on top of the Sage lists and win where they have data. They stay in this browser only; re-pasting a list replaces it.</p>'
     +'<div class="pcrow" style="grid-template-columns:180px 1fr;margin-top:8px"><div><span class="pclab">Which list</span><select id="lType"><option value="trims">Trims list</option><option value="fabrics">Fabrics list</option></select></div><div></div></div>'
