@@ -31,6 +31,9 @@ header .spacer{flex:1}
 .btn-navy{background:var(--navy);color:#fff}
 .btn-red{background:#fee2e2;color:#991b1b}
 .btn-green{background:#d1fae5;color:#065f46}
+.btn-due{background:var(--red);color:#fff;animation:due 1.6s ease-in-out infinite}
+@keyframes due{50%{box-shadow:0 0 0 5px rgba(192,57,43,.35)}}
+@media (prefers-reduced-motion:reduce){.btn-due{animation:none;box-shadow:0 0 0 3px rgba(192,57,43,.35)}}
 .btn-sm{padding:5px 10px;font-size:12px}
 .src{font-size:12px;color:#fff;background:rgba(255,255,255,.12);border-radius:10px;padding:5px 11px;display:flex;gap:8px;align-items:center}
 .src .dot{width:8px;height:8px;border-radius:50%;background:#9ca3af;display:inline-block}
@@ -70,6 +73,7 @@ textarea{resize:vertical;min-height:70px;line-height:1.45}
 .tag.new{background:#d1fae5;color:#065f46}
 .tag.team{background:#dbeafe;color:#1e40af}
 .tag.cost{background:#ede9fe;color:#5b21b6}
+.tag.draft{background:#fee2e2;color:#991b1b}
 .ed{min-width:0}
 .hero{padding:16px 18px;border-bottom:1px solid var(--line);display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
 .hero .code{font-family:Consolas,'Courier New',monospace;font-size:26px;font-weight:700;color:var(--navy);overflow-wrap:anywhere;line-height:1.15}
@@ -168,9 +172,9 @@ textarea.out{width:100%;min-height:300px;font-family:Consolas,monospace;font-siz
   </div>
   <span class="src snap" id="srcPill"><span class="dot"></span><span id="srcTxt">Loading…</span></span>
   <button class="src snap clk" id="libPill" onclick="openLists()" title="Fabric and trim price lists from the costing app — click to manage"><span class="dot"></span><span id="libTxt">Price lists…</span></button>
-  <span class="chg" id="chgPill">No changes</span>
+  <span class="chg" id="chgPill">Nothing to send</span>
   <button class="btn btn-ghost" onclick="loadFileClick()">Load file</button>
-  <button class="btn btn-gold" onclick="openExport()">Export</button>
+  <button class="btn btn-gold" id="expBtn" onclick="openExport()">Export for PM</button>
 </header>
 
 <main>
@@ -237,6 +241,11 @@ var BASE={styles:{},order:[],charts:{},chartCols:{},trimCosts:{},markers:{},team
 var EDITS={styles:{},charts:{},chartCols:{}};
 var META={source:'snap',stamp:'',teamN:0,costSrc:'',costStamp:''};
 var COSTPUB=null;   /* the costing app's published-data.json: quotes, SRs and converted products */
+/* DRAFT = the style open in the editor, with any chart it touched. Nothing reaches EDITS (the saved
+   changes that go to the PM) until Save & close; Close without saving throws the draft away.       */
+var DRAFT=null;
+var DRAFT_KEY='tibard_woe_draft_v1', XP_KEY='tibard_woe_exported_v1';
+var EXPORTED={hash:'',at:''};   /* what was last downloaded for the PM, so the button can nag until the next one */
 var cur=null, tab='styles', q='', grp='all', bq='', bulkSel={}, curOp='replace';
 
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
@@ -288,6 +297,7 @@ function setBase(d,overlay){
   /* drop editor changes that now match the base */
   Object.keys(EDITS.styles).forEach(function(c){if(BASE.styles[c]&&JSON.stringify(strip(EDITS.styles[c]))===JSON.stringify(strip(BASE.styles[c])))delete EDITS.styles[c];});
   saveEdits();
+  if(DRAFT&&BASE.order.indexOf(DRAFT.code)<0)BASE.order.push(DRAFT.code);
   libBuild();
   applyCosting();
 }
@@ -355,7 +365,7 @@ function loadText(name,txt){
   if(list.length&&list[0]&&list[0].code&&(list[0].trims||list[0].fabrics)){ /* costing app _product.json */
     var k=0;list.forEach(function(d){if(!d||!d.code)return;var st=fromCosting(d);var c=st.code;EDITS.styles[c]=st;if(!BASE.styles[c]&&BASE.order.indexOf(c)<0)BASE.order.push(c);
       if(d.chart&&d.chartRows&&d.chartRows.length){EDITS.charts[d.chart]=d.chartRows;if(d.chartCols)EDITS.chartCols[d.chart]=d.chartCols;}k++;});
-    saveEdits();if(k){cur=list[0].code.toUpperCase();showTab('styles');}renderAll();
+    saveEdits();if(k&&!(DRAFT&&isDirty())){DRAFT=null;saveDraftStore();cur=list[0].code.toUpperCase();showTab('styles');}renderAll();
     modal('Product pack added',name,'<p class="pcnote">'+k+' product'+(k===1?'':'s')+' from the costing app added as new styles. They are marked as changes and will be in the export.</p>');return;
   }
   modal('Format not recognised',name,'<p class="pcwarn">This file is not the buffer app index.html, its data.json, the costing app index.html or published-data.json, a costing app _product.json, or an export from this editor.</p>');
@@ -440,24 +450,65 @@ function costingOnly(){return BASE.order.filter(function(c){return BASE.costing[
 function strip(s){var o=clone(s);delete o.editedAt;return o;}
 function loadEdits(){try{var d=JSON.parse(localStorage.getItem(LS_KEY)||'null');if(d&&d.styles){EDITS=d;EDITS.charts=EDITS.charts||{};EDITS.chartCols=EDITS.chartCols||{};Object.keys(EDITS.styles).forEach(function(c){EDITS.styles[c]=unify(EDITS.styles[c],{});});}}catch(e){}}
 function saveEdits(){try{localStorage.setItem(LS_KEY,JSON.stringify(EDITS));}catch(e){}}
-function get(c){return EDITS.styles[c]||BASE.styles[c]||null;}
+function savedStyle(c){return EDITS.styles[c]||BASE.styles[c]||null;}           /* saved changes over the buffer app */
+function get(c){return (DRAFT&&DRAFT.code===c)?DRAFT.style:savedStyle(c);}       /* what the editor shows: the draft while one is open */
 function isNew(c){return !BASE.styles[c];}
 function isChanged(c){if(!EDITS.styles[c])return false;if(isNew(c))return true;return JSON.stringify(strip(EDITS.styles[c]))!==JSON.stringify(strip(BASE.styles[c]));}
-function edit(c){ /* get a writable copy */
+function edit(c){ /* the draft for c, started from the saved copy on first touch */
+  if(DRAFT&&DRAFT.code===c)return DRAFT.style;
+  var b=savedStyle(c);if(!b)return null;
+  DRAFT={code:c,style:clone(b),charts:{},chartCols:{}};return DRAFT.style;
+}
+function editSaved(c){ /* bulk edit writes straight to the saved changes: Apply is the save */
   if(!EDITS.styles[c]){if(!BASE.styles[c])return null;EDITS.styles[c]=clone(BASE.styles[c]);}
   return EDITS.styles[c];
 }
-function settle(c){ /* drop the change if it landed back on the base */
+function settleSaved(c){ /* drop a saved change that landed back on the base */
   if(EDITS.styles[c]&&!isNew(c)&&JSON.stringify(strip(EDITS.styles[c]))===JSON.stringify(strip(BASE.styles[c])))delete EDITS.styles[c];
   saveEdits();
 }
+function isDirty(){ /* does the open draft differ from what is saved? */
+  if(!DRAFT)return false;var b=savedStyle(DRAFT.code);if(!b)return true;
+  if(JSON.stringify(strip(DRAFT.style))!==JSON.stringify(strip(b)))return true;
+  var k;for(k in DRAFT.charts)if(JSON.stringify(DRAFT.charts[k])!==JSON.stringify(savedChartRows(k)))return true;
+  for(k in DRAFT.chartCols)if(JSON.stringify(DRAFT.chartCols[k])!==JSON.stringify(savedChartCols(k)))return true;
+  return false;
+}
+function dirtyHere(c){return !!(DRAFT&&DRAFT.code===c&&isDirty());}
+function saveDraftStore(){try{if(DRAFT)localStorage.setItem(DRAFT_KEY,JSON.stringify(DRAFT));else localStorage.removeItem(DRAFT_KEY);}catch(e){}}
+function loadDraftStore(){try{var d=JSON.parse(localStorage.getItem(DRAFT_KEY)||'null');if(d&&d.code&&d.style){DRAFT={code:String(d.code).toUpperCase(),style:unify(d.style,{}),charts:d.charts||{},chartCols:d.chartCols||{}};cur=DRAFT.code;}}catch(e){}}
+function saveDraft(){ /* commit the draft to the saved changes */
+  if(!DRAFT)return false;var c=DRAFT.code;
+  if(isNew(c)||JSON.stringify(strip(DRAFT.style))!==JSON.stringify(strip(BASE.styles[c])))EDITS.styles[c]=DRAFT.style;else delete EDITS.styles[c];
+  Object.keys(DRAFT.charts).forEach(function(k){if(JSON.stringify(DRAFT.charts[k])===JSON.stringify(BASE.charts[k]||null))delete EDITS.charts[k];else EDITS.charts[k]=DRAFT.charts[k];});
+  Object.keys(DRAFT.chartCols).forEach(function(k){if(JSON.stringify(DRAFT.chartCols[k])===JSON.stringify(BASE.chartCols[k]||null))delete EDITS.chartCols[k];else EDITS.chartCols[k]=DRAFT.chartCols[k];});
+  DRAFT=null;saveDraftStore();saveEdits();return true;
+}
+function discardDraft(){ /* throw the draft away; a never-saved new style disappears with it */
+  if(!DRAFT)return;var c=DRAFT.code;DRAFT=null;saveDraftStore();
+  if(isNew(c)&&!EDITS.styles[c]){var i=BASE.order.indexOf(c);if(i>=0)BASE.order.splice(i,1);if(cur===c)cur=null;}
+}
+function saveClose(){if(!cur)return;if(DRAFT&&DRAFT.code===cur)saveDraft();cur=null;renderAll();}
+function saveStay(){if(!cur||!DRAFT||DRAFT.code!==cur)return;saveDraft();renderAll();}
+function closeNoSave(){if(!cur)return;if(dirtyHere(cur)&&!confirm('Close '+cur+' and throw away the unsaved changes?'))return;discardDraft();cur=null;renderAll();}
+function guardLeave(then){ /* leaving the open style: nothing to ask unless it has unsaved changes */
+  if(!DRAFT||!isDirty()){if(DRAFT){DRAFT=null;saveDraftStore();}then();renderChg();return;}
+  var c=DRAFT.code;
+  modal('Unsaved changes',c,'<p class="pcnote"><strong>'+esc(c)+'</strong> has changes that have not been saved. Save them, or throw them away? (Close keeps editing.)</p>',
+    [{l:'Throw away',c:'btn-red',f:function(){discardDraft();closeModal();then();renderChg();renderChips();}},{l:'Save',c:'btn-gold',f:function(){saveDraft();closeModal();then();renderChg();renderChips();}}]);
+}
 function changedCodes(){return Object.keys(EDITS.styles).filter(isChanged);}
-function chartRows(k){return EDITS.charts[k]||BASE.charts[k]||[];}
-function chartCols(k){return EDITS.chartCols[k]||BASE.chartCols[k]||null;}
+function savedChartRows(k){return EDITS.charts[k]||BASE.charts[k]||[];}
+function savedChartCols(k){return EDITS.chartCols[k]||BASE.chartCols[k]||null;}
+function chartRows(k){return (DRAFT&&(k in DRAFT.charts))?DRAFT.charts[k]:savedChartRows(k);}
+function chartCols(k){return (DRAFT&&(k in DRAFT.chartCols))?DRAFT.chartCols[k]:savedChartCols(k);}
+function chartDirty(k){return !!(DRAFT&&(((k in DRAFT.charts)&&JSON.stringify(DRAFT.charts[k])!==JSON.stringify(savedChartRows(k)))||((k in DRAFT.chartCols)&&JSON.stringify(DRAFT.chartCols[k])!==JSON.stringify(savedChartCols(k)))));}
+function setDraftChart(k,rows){if(!edit(cur))return;DRAFT.charts[k]=rows;saveDraftStore();}
+function setDraftCols(k,cols){if(!edit(cur))return;DRAFT.chartCols[k]=cols;saveDraftStore();}
 function chartChanged(k){return (k in EDITS.charts)&&JSON.stringify(EDITS.charts[k])!==JSON.stringify(BASE.charts[k]||null)||(k in EDITS.chartCols)&&JSON.stringify(EDITS.chartCols[k])!==JSON.stringify(BASE.chartCols[k]||null);}
-function sections(c){
-  if(!EDITS.styles[c])return[];if(isNew(c))return['new style'];
-  var a=strip(EDITS.styles[c]),b=BASE.styles[c],out=[];
+function sections(c,a,b){ /* which parts of a differ from b; saved change vs buffer app by default */
+  a=a||EDITS.styles[c];b=b||BASE.styles[c];if(!a)return[];if(!b)return['new style'];
+  a=strip(a);b=strip(b);var out=[];
   var det=function(o){return JSON.stringify([o.code,o.name,o.desc,o.tol,o.oneSize,o.ladies,o.alias,o.customer]);};
   if(det(a)!==det(b))out.push('details');
   var cut=function(o){return JSON.stringify([o.lectra,o.variant,o.cutBatch,o.cutMins,o.markerMain,o.markerMesh,o.markerLen,o.layQty,o.hasMesh,o.meshLen,o.meshLay]);};
@@ -497,7 +548,7 @@ function visible(){
   return BASE.order.filter(function(c){
     var s=get(c);if(!s)return false;
     if(grp!=='all'&&groupOf(c)!==grp)return false;
-    if(show==='changed'&&!isChanged(c))return false;
+    if(show==='changed'&&!isChanged(c)&&!dirtyHere(c))return false;
     if(show==='team'&&!BASE.team[c])return false;
     if(show==='costing'&&!BASE.costing[c])return false;
     if(show==='notimes'&&!(s.machMins==null||s.finMins==null))return false;
@@ -519,14 +570,24 @@ function renderList(){
   var h='';
   v.forEach(function(c){var s=get(c);var sz=sizesFor(s).length;
     h+='<li class="'+(c===cur?'on':'')+'" onclick="pick(\''+esc(c)+'\')"><span class="c">'+esc(c).replace('--','<span style="color:#7A5B14">--</span>')
-      +(isChanged(c)?'<span class="tag '+(isNew(c)?'new':'alt')+'">'+(isNew(c)?'new':'changed')+'</span>':'')+(BASE.team[c]&&!isChanged(c)?'<span class="tag team">team</span>':'')+(BASE.costing[c]?'<span class="tag cost">costing</span>':'')+'</span>'
+      +(dirtyHere(c)?'<span class="tag draft">unsaved</span>':(isChanged(c)?'<span class="tag '+(isNew(c)?'new':'alt')+'">'+(isNew(c)?'new':'saved')+'</span>':''))+(BASE.team[c]&&!isChanged(c)?'<span class="tag team">team</span>':'')+(BASE.costing[c]?'<span class="tag cost">costing</span>':'')+'</span>'
       +'<span class="n">'+esc(s.name||'')+' · '+sz+' code'+(sz===1?'':'s')+(s.machMins==null?' · no times':'')+'</span></li>';});
   $('styleList').innerHTML=h||'<li style="color:var(--mut);cursor:default">Nothing matches.</li>';
 }
-function pick(c){cur=c;renderList();renderEditor();}
+function pick(c){if(c===cur)return;guardLeave(function(){cur=c;renderList();renderEditor();});}
 function renderAll(){renderChips();renderList();renderEditor();renderChg();if(tab==='bulk')renderBulk();}
-function renderChg(){var n=changedCodes().length,ch=Object.keys(EDITS.charts).concat(Object.keys(EDITS.chartCols)).filter(function(k,i,a){return a.indexOf(k)===i&&chartChanged(k);}).length;
-  var p=$('chgPill');p.textContent=(n||ch)?(n+' style'+(n===1?'':'s')+(ch?' + '+ch+' chart'+(ch===1?'':'s'):'')+' to export'):'No changes';p.className='chg'+((n||ch)?' on':'');}
+function renderChg(){var n=changedCodes().length,ch=Object.keys(EDITS.charts).concat(Object.keys(EDITS.chartCols)).filter(function(k,i,a){return a.indexOf(k)===i&&chartChanged(k);}).length,d=(DRAFT&&isDirty())?1:0;
+  var p=$('chgPill');p.textContent=((n||ch)?(n+' saved'+(ch?' + '+ch+' chart'+(ch===1?'':'s'):'')):'Nothing saved')+(d?' · 1 unsaved':'');p.className='chg'+((n||ch||d)?' on':'');
+  var b=$('expBtn'),pend=pendingExport();if(b){b.className='btn '+(pend?'btn-due':'btn-gold');b.textContent='Export for PM'+(pend?' · '+pend+' to send':'');b.title=pend?pend+' saved style'+(pend===1?'':'s')+' not yet downloaded for the PM':(EXPORTED.at?'Everything saved has been downloaded ('+EXPORTED.at.slice(0,10)+')':'Nothing waiting to go to the PM');}}
+function hashStr(s){var h=5381;for(var i=0;i<s.length;i++)h=((h<<5)+h+s.charCodeAt(i))|0;return String(h);}
+function exportHash(withCosting){var e=buildExport(false,withCosting);return hashStr(JSON.stringify({s:e.styles.map(strip),c:e.charts,k:e.chartCols}));}
+function pendingExport(){ /* saved styles that have not been downloaded since they were saved */
+  var e=buildExport(false,true);var n=e.styles.length;if(!n&&!Object.keys(e.charts).length)return 0;
+  if(EXPORTED.hash&&(exportHash(true)===EXPORTED.hash||exportHash(false)===EXPORTED.hash))return 0;
+  return n||1;
+}
+function loadExported(){try{var d=JSON.parse(localStorage.getItem(XP_KEY)||'null');if(d&&d.hash)EXPORTED=d;}catch(e){}}
+function markExported(withCosting){EXPORTED={hash:exportHash(withCosting),at:new Date().toISOString()};try{localStorage.setItem(XP_KEY,JSON.stringify(EXPORTED));}catch(e){}renderChg();}
 
 /* ═══════════ editor ═══════════ */
 function fld(lab,key,val,type,ph){return '<div><span class="pclab">'+esc(lab)+'</span><input '+(type==='number'?'type="number" step="any"':'type="text"')+' data-f="'+key+'" value="'+esc(val==null?'':val)+'"'+(ph?' placeholder="'+esc(ph)+'"':'')+'></div>';}
@@ -545,15 +606,13 @@ function stepsHTML(kind,title,lines){
 }
 function renderEditor(){
   var el=$('editor');var s=cur?get(cur):null;
-  if(!s){el.innerHTML='<div class="empty"><strong>Pick a style to edit</strong>Choose one from the list, search, or press New style. Everything on a style applies to every size of it; only the marker numbers differ per size.</div>';return;}
+  if(!s){el.innerHTML='<div class="empty"><strong>Pick a style to edit</strong>Choose one from the list, search, or press New style. Everything on a style applies to every size of it; only the marker numbers differ per size.<br><br>Changes stay unsaved until you press <strong>Save &amp; close</strong>. Saved styles wait on the <strong>Export for PM</strong> button, which turns red until you download them.</div>';return;}
   var c=s.code,sizes=sizesFor(s),ch=isChanged(c),nw=isNew(c),sized=!(s.oneSize||c.indexOf('--')<0);
   var codesTxt=sizes.length>1?('<b>all '+sizes.length+' product codes</b>: <span class="mono">'+esc(sizes[0].code)+'</span> through <span class="mono">'+esc(sizes[sizes.length-1].code)+'</span>'):'<b>one product code</b>: <span class="mono">'+esc(sizes[0]?sizes[0].code:c)+'</span>';
   var h='<div class="hero"><div><div class="code">'+esc(c).replace('--','<span class="slot">--</span>')+'</div><div class="name">'+esc(s.name||'(no name yet)')+'</div>'
     +'<div class="cas">One edit here updates '+codesTxt+'.'+(s.colourways?' The token after the dash is a colour code on this style.':(sizes.length>1?' Sizes come from the size chart below; markers are looked up per size from the cutting room sheet.':''))
     +(BASE.costing[c]?'<br><span class="tag cost">costing</span> Converted in the costing app'+(s.sr?' from '+esc(s.sr):'')+' and not in the buffer app yet. It goes into the export (with or without edits) so the buffer app receives it; once published there, the buffer app\'s copy takes over.':'')+'</div></div>'
-    +'<div class="acts">'+(ch?'<span class="tag '+(nw?'new':'alt')+'" style="align-self:center;padding:5px 10px">'+(nw?'New style':'Changed: '+esc(sections(c).join(', ')))+'</span>':(BASE.team[c]?'<span class="tag team" style="align-self:center;padding:5px 10px">Team edit in data.json</span>':''))
-    +'<button class="btn btn-sm" onclick="dupStyle()">Duplicate as another colour</button>'
-    +'<button class="btn btn-sm" onclick="undoStyle()" '+(ch?'':'disabled')+'>'+(nw?'Discard new style':'Undo changes')+'</button></div></div>';
+    +'<div class="acts">'+heroActs(c)+'</div></div>';
   h+='<div class="body">';
   /* 1 · details — the costing app's "quote / sample details": who, what, branding */
   var bt=(!s.brandType||s.brandType==='None')?'None':s.brandType;
@@ -594,20 +653,21 @@ function renderEditor(){
   var rows=chartRows(s.chart),cols=chartCols(s.chart),users=s.chart?chartUsers(s.chart):[];
   h+='<div class="pcsec"><h4>Size chart &amp; measurements <span class="r">'+(s.chart?(users.length>1?'shared with '+(users.length-1)+' other style'+(users.length===2?'':'s')+' — a change here reaches them too':'used by this style only'):'')+'</span></h4><div class="in">'
     +'<div class="pcrow" style="grid-template-columns:1fr 2fr">'+'<div><span class="pclab">Chart key</span><input class="mono" data-f="chart" list="chartKeys" value="'+esc(s.chart)+'"></div>'
-    +'<div class="pcnote" style="align-self:end">'+(s.chart?(chartChanged(s.chart)?'<span class="tag alt">chart changed</span> ':'')+(cols?'Measurement table with its own column headings.':'Standard '+(s.ladies?'ladies':'chest')+' size chart — the first column is the size that goes into the product code.'):'No chart. Type a key to reuse an existing chart or start a new one.')+'</div></div>';
+    +'<div class="pcnote" style="align-self:end">'+(s.chart?(chartDirty(s.chart)?'<span class="tag draft">chart unsaved</span> ':(chartChanged(s.chart)?'<span class="tag alt">chart saved</span> ':''))+(cols?'Measurement table with its own column headings.':'Standard '+(s.ladies?'ladies':'chest')+' size chart — the first column is the size that goes into the product code.'):'No chart. Type a key to reuse an existing chart or start a new one.')+'</div></div>';
   if(s.chart){
     var hdr=cols||defaultCols(s);var w=Math.max(hdr.length,rows.reduce(function(a,r){return Math.max(a,r.length);},0));
     h+='<div class="tw"><table class="pctbl" id="chartT"><tr>';
     for(var ci=0;ci<w;ci++){h+='<th>'+(cols?'<input data-cc="'+ci+'" value="'+esc(cols[ci]||'')+'" style="font-weight:700">':esc(hdr[ci]||''))+'</th>';}
     h+='<th style="width:30px"></th></tr>';
     rows.forEach(function(r,ri){h+='<tr>';for(var ci2=0;ci2<w;ci2++){h+='<td'+(ci2===0?' style="font-weight:700"':'')+'><input data-ch="'+ri+'" data-cc="'+ci2+'" value="'+esc(r[ci2]==null?'':r[ci2])+'"></td>';}h+='<td><button class="x" onclick="chartDel('+ri+')" title="Remove row">&times;</button></td></tr>';});
-    h+='</table></div><div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-sm" onclick="chartAdd()">Add row</button>'+(cols?'<button class="btn btn-sm" onclick="chartAddCol()">Add column</button>':'')+(chartChanged(s.chart)?'<button class="btn btn-sm" onclick="chartUndo()">Undo chart changes</button>':'')+'</div>';
+    h+='</table></div><div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-sm" onclick="chartAdd()">Add row</button>'+(cols?'<button class="btn btn-sm" onclick="chartAddCol()">Add column</button>':'')+(chartDirty(s.chart)?'<button class="btn btn-sm" onclick="chartUndo()">Undo chart changes</button>':'')+'</div>';
   }
   h+='</div></div>';
   /* 7 · 8 · manufacturing and finishing steps */
   h+=stepsHTML('mfg','Manufacturing details',s.mfg)+stepsHTML('fin','Finishing details',s.fin);
   /* per size preview */
   h+='<div class="pcsec"><h4>What the buffer app will print <span class="r">one row per product code — the only per-size data is the marker</span></h4><div class="in tw" id="prev">'+previewHTML(s)+'</div></div>';
+  h+='<div style="display:flex;gap:8px;justify-content:flex-end;align-items:center"><span class="pcnote" style="margin-right:auto">Ctrl+S saves and stays on this style.</span><button class="btn" onclick="closeNoSave()">Close</button><button class="btn btn-gold" onclick="saveClose()">Save &amp; close</button></div>';
   h+='</div>';
   el.innerHTML=h;
   var dl=$('chartKeys');if(!dl){dl=document.createElement('datalist');dl.id='chartKeys';document.body.appendChild(dl);}
@@ -623,11 +683,19 @@ function previewHTML(s){
   return h+'</table>';
 }
 function refreshPreview(){var s=get(cur);var p=$('prev');if(!s||!p)return;p.innerHTML=previewHTML(s);var t=p.firstChild;t.classList.add('flash');}
-function afterEdit(full){settle(cur);renderChg();renderChips();renderList();if(full)renderEditor();else{refreshPreview();updateHeroTag();}}
-function updateHeroTag(){var s=get(cur);if(!s)return;var acts=document.querySelector('.hero .acts');if(!acts)return;var ch=isChanged(cur),nw=isNew(cur);
-  var tag=acts.querySelector('.tag');var html=ch?'<span class="tag '+(nw?'new':'alt')+'" style="align-self:center;padding:5px 10px">'+(nw?'New style':'Changed: '+esc(sections(cur).join(', ')))+'</span>':(BASE.team[cur]?'<span class="tag team" style="align-self:center;padding:5px 10px">Team edit in data.json</span>':'');
-  if(tag)tag.outerHTML=html;else acts.insertAdjacentHTML('afterbegin',html);
-  var ub=acts.querySelectorAll('button')[1];if(ub)ub.disabled=!ch;var nm=document.querySelector('.hero .name');if(nm)nm.textContent=s.name||'(no name yet)';}
+function afterEdit(full){saveDraftStore();renderChg();renderChips();renderList();if(full)renderEditor();else{refreshPreview();updateHeroTag();}}
+function heroActs(c){
+  var ch=isChanged(c),nw=isNew(c),dirty=dirtyHere(c),st='';
+  if(dirty)st='<span class="tag draft" style="align-self:center;padding:5px 10px">Unsaved: '+esc(sections(c,DRAFT.style,savedStyle(c)).join(', '))+'</span>';
+  else if(ch)st='<span class="tag '+(nw?'new':'alt')+'" style="align-self:center;padding:5px 10px">'+(nw?'New style · saved':'Saved: '+esc(sections(c).join(', ')))+(pendingExport()?' · to send':'')+'</span>';
+  else if(BASE.team[c])st='<span class="tag team" style="align-self:center;padding:5px 10px">Team edit in data.json</span>';
+  return st+'<button class="btn btn-sm btn-gold" onclick="saveClose()">Save &amp; close</button>'
+    +'<button class="btn btn-sm" onclick="closeNoSave()">'+(dirty?'Close without saving':'Close')+'</button>'
+    +'<button class="btn btn-sm" onclick="dupStyle()">Duplicate as another colour</button>'
+    +(ch&&!dirty?'<button class="btn btn-sm" onclick="undoStyle()">'+(nw?'Delete new style':'Revert to buffer app copy')+'</button>':'');
+}
+function updateHeroTag(){var s=get(cur);if(!s)return;var acts=document.querySelector('.hero .acts');if(!acts)return;acts.innerHTML=heroActs(cur);
+  var nm=document.querySelector('.hero .name');if(nm)nm.textContent=s.name||'(no name yet)';}
 
 $('editor').addEventListener('input',onEdit);
 $('editor').addEventListener('change',function(e){var t=e.target;if(t.tagName==='SELECT'||t.type==='checkbox')onEdit(e);else if(t.dataset&&t.dataset.s){if(cleanSteps(t.dataset.s))afterEdit(true);}});
@@ -636,9 +704,11 @@ function onEdit(e){
   if(t.dataset.f){
     var k=t.dataset.f,v=t.type==='checkbox'?t.checked:(t.type==='number'?pn(t.value):t.value);
     if(k==='alias'){s.alias=t.value.split(',').map(function(x){return x.trim().toUpperCase();}).filter(Boolean);}
-    else if(k==='code'){var nc=t.value.trim().toUpperCase();if(!nc)return;if(nc!==cur){if(get(nc)&&nc!==cur){t.style.borderColor='var(--red)';t.title='That code already exists';return;}t.style.borderColor='';t.title='';
-        var wasNew=isNew(cur);var obj=s;delete EDITS.styles[cur];obj.code=nc;EDITS.styles[nc]=obj;if(!wasNew){/* renaming a baked style: keep old as-is, new one is a copy */}
-        var oi=BASE.order.indexOf(cur);if(wasNew&&oi>=0)BASE.order.splice(oi,1);if(BASE.order.indexOf(nc)<0)BASE.order.push(nc);cur=nc;}
+    else if(k==='code'){var nc=t.value.trim().toUpperCase();if(!nc)return;if(nc!==cur){if(savedStyle(nc)){t.style.borderColor='var(--red)';t.title='That code already exists';return;}t.style.borderColor='';t.title='';
+        var wasNew=isNew(cur);s.code=nc;DRAFT.code=nc;
+        if(wasNew){var oi=BASE.order.indexOf(cur);if(oi>=0)BASE.order[oi]=nc;else BASE.order.push(nc);if(EDITS.styles[cur]){EDITS.styles[nc]=EDITS.styles[cur];delete EDITS.styles[cur];saveEdits();}}
+        else if(BASE.order.indexOf(nc)<0)BASE.order.push(nc);   /* renaming a buffer style makes a new code; the original is untouched */
+        cur=nc;}
       afterEdit(false);document.querySelector('.hero .code').innerHTML=esc(cur).replace('--','<span class="slot">--</span>');return;}
     else if(k==='chart'){s.chart=t.value.trim();afterEdit(true);var inp=document.querySelector('[data-f="chart"]');if(inp){inp.focus();inp.setSelectionRange(inp.value.length,inp.value.length);}return;}
     else if(k==='oneSize'||k==='ladies'||k==='hasMesh'){s[k]=v;if(k==='ladies'&&!v)delete s.ladies;afterEdit(true);return;}
@@ -656,8 +726,8 @@ function onEdit(e){
   if(t.dataset.s){var kind=t.dataset.s,si=+t.dataset.i;s[kind][si]=t.value;afterEdit(false);return;}
   if(t.dataset.ch!=null){var k3=s.chart;if(!k3)return;var rows=clone(chartRows(k3));var ri=+t.dataset.ch,ci=+t.dataset.cc;while(rows[ri].length<=ci)rows[ri].push('');
     var old=rows[ri][ci];var nv=t.value;rows[ri][ci]=(typeof old==='number'&&nv.trim()!==''&&!isNaN(parseFloat(nv))&&String(parseFloat(nv))===nv.trim())?parseFloat(nv):(ci===0&&/^\d+$/.test(nv.trim())?parseInt(nv,10):nv);
-    EDITS.charts[k3]=rows;saveEdits();renderChg();refreshPreview();return;}
-  if(t.dataset.cc!=null&&t.dataset.ch==null){var k4=s.chart;var cols=clone(chartCols(k4)||[]);cols[+t.dataset.cc]=t.value;EDITS.chartCols[k4]=cols;saveEdits();renderChg();return;}
+    setDraftChart(k3,rows);renderChg();renderList();refreshPreview();updateHeroTag();return;}
+  if(t.dataset.cc!=null&&t.dataset.ch==null){var k4=s.chart;var cols=clone(chartCols(k4)||[]);cols[+t.dataset.cc]=t.value;setDraftCols(k4,cols);renderChg();renderList();updateHeroTag();return;}
 }
 function addRow(r){var s=edit(cur);if(!s)return;s[r].push(r==='trims'?['','','','',null]:['','','',null,null]);afterEdit(true);var inps=document.querySelectorAll('[data-r="'+r+'"][data-i="'+(s[r].length-1)+'"]');if(inps[0])inps[0].focus();}
 function delRow(r,i){var s=edit(cur);if(!s)return;s[r].splice(i,1);afterEdit(true);}
@@ -673,27 +743,35 @@ $('editor').addEventListener('dragstart',function(ev){var td=ev.target&&ev.targe
 $('editor').addEventListener('dragover',function(ev){if(!DRAG_TR)return;var tr=ev.target&&ev.target.closest?ev.target.closest('tr.st'):null;if(!tr||tr===DRAG_TR||tr.closest('table')!==DRAG_TR.closest('table'))return;ev.preventDefault();ev.dataTransfer.dropEffect='move';var r=tr.getBoundingClientRect();if(ev.clientY<r.top+r.height/2)tr.parentNode.insertBefore(DRAG_TR,tr);else tr.parentNode.insertBefore(DRAG_TR,tr.nextSibling);});
 $('editor').addEventListener('drop',function(ev){if(DRAG_TR)ev.preventDefault();});
 $('editor').addEventListener('dragend',function(){if(!DRAG_TR)return;var tbl=DRAG_TR.closest('table');DRAG_TR.classList.remove('pcdragging');DRAG_TR=null;if(!tbl||!cur)return;var kind=tbl.id.replace('steps_','');var s=edit(cur);if(!s)return;var vals=[];tbl.querySelectorAll('input[data-s]').forEach(function(inp){vals.push(inp.value);});if(JSON.stringify(vals)!==JSON.stringify(s[kind])){s[kind]=vals;afterEdit(true);}});
-function chartAdd(){var s=get(cur);if(!s||!s.chart)return;var rows=clone(chartRows(s.chart));var w=Math.max((chartCols(s.chart)||defaultCols(s)).length,rows.reduce(function(a,r){return Math.max(a,r.length);},0));var nr=[];for(var i=0;i<w;i++)nr.push('');rows.push(nr);EDITS.charts[s.chart]=rows;saveEdits();renderChg();renderEditor();}
-function chartDel(i){var s=get(cur);if(!s||!s.chart)return;var rows=clone(chartRows(s.chart));rows.splice(i,1);EDITS.charts[s.chart]=rows;saveEdits();renderChg();renderEditor();}
-function chartAddCol(){var s=get(cur);if(!s||!s.chart)return;var cols=clone(chartCols(s.chart)||[]);cols.push('');EDITS.chartCols[s.chart]=cols;saveEdits();renderEditor();}
-function chartUndo(){var s=get(cur);if(!s||!s.chart)return;delete EDITS.charts[s.chart];delete EDITS.chartCols[s.chart];saveEdits();renderChg();renderEditor();}
-function undoStyle(){if(!cur)return;if(isNew(cur)){if(!confirm('Discard this new style?'))return;var i=BASE.order.indexOf(cur);if(i>=0)BASE.order.splice(i,1);delete EDITS.styles[cur];cur=null;}else delete EDITS.styles[cur];saveEdits();renderAll();}
+function chartAdd(){var s=get(cur);if(!s||!s.chart)return;var rows=clone(chartRows(s.chart));var w=Math.max((chartCols(s.chart)||defaultCols(s)).length,rows.reduce(function(a,r){return Math.max(a,r.length);},0));var nr=[];for(var i=0;i<w;i++)nr.push('');rows.push(nr);setDraftChart(s.chart,rows);afterEdit(true);}
+function chartDel(i){var s=get(cur);if(!s||!s.chart)return;var rows=clone(chartRows(s.chart));rows.splice(i,1);setDraftChart(s.chart,rows);afterEdit(true);}
+function chartAddCol(){var s=get(cur);if(!s||!s.chart)return;var cols=clone(chartCols(s.chart)||[]);cols.push('');setDraftCols(s.chart,cols);afterEdit(true);}
+function chartUndo(){var s=get(cur);if(!s||!s.chart||!DRAFT)return;delete DRAFT.charts[s.chart];delete DRAFT.chartCols[s.chart];afterEdit(true);}
+function undoStyle(){ /* throw away the SAVED change: back to the buffer app copy, or delete a new style outright */
+  if(!cur)return;
+  if(isNew(cur)){if(!confirm('Delete the new style '+cur+'? It has not gone to the PM.'))return;var i=BASE.order.indexOf(cur);if(i>=0)BASE.order.splice(i,1);delete EDITS.styles[cur];DRAFT=null;cur=null;}
+  else{if(!confirm('Revert '+cur+' to the buffer app copy? The saved changes to it are thrown away.'))return;delete EDITS.styles[cur];DRAFT=null;}
+  saveDraftStore();saveEdits();renderAll();
+}
 function newStyle(){
-  var n=1,code='NEWSTYLE--01';while(get(code))code='NEWSTYLE'+(++n)+'--01';
-  EDITS.styles[code]=unify({code:code,name:'',desc:'',lectra:'',variant:'',chart:'',fabrics:[['','','',null,null]],trims:[['Thread','','','',null],['Labels','Oliver Harvey woven label, back neck','','',null]],mfg:[],fin:['Pressed and trimmed'],machMins:null,finMins:null,cutBatch:25,cutMins:15},{});
-  BASE.order.push(code);cur=code;saveEdits();showTab('styles');renderAll();var inp=document.querySelector('[data-f="code"]');if(inp){inp.focus();inp.select();}
+  guardLeave(function(){
+    var n=1,code='NEWSTYLE--01';while(savedStyle(code))code='NEWSTYLE'+(++n)+'--01';
+    DRAFT={code:code,style:unify({code:code,name:'',desc:'',lectra:'',variant:'',chart:'',fabrics:[['','','',null,null]],trims:[['Thread','','','',null],['Labels','Oliver Harvey woven label, back neck','','',null]],mfg:[],fin:['Pressed and trimmed'],machMins:null,finMins:null,cutBatch:25,cutMins:15},{}),charts:{},chartCols:{}};
+    BASE.order.push(code);cur=code;saveDraftStore();showTab('styles');renderAll();var inp=document.querySelector('[data-f="code"]');if(inp){inp.focus();inp.select();}
+  });
 }
 function dupStyle(){
   var s=get(cur);if(!s)return;
+  if(dirtyHere(cur)){alert('Save & close '+cur+' first, then duplicate it.');return;}
   modal('Duplicate as another colour',cur,'<p class="pcnote">Copies everything from this style. The colour word you give replaces the old one in the name, description, fabrics and trims. Type the full new code.</p>'
     +'<div class="pcrow" style="grid-template-columns:1fr 1fr 1fr;margin-top:10px"><div><span class="pclab">New product code template</span><input id="dCode" class="mono" value="'+esc(cur)+'"></div><div><span class="pclab">Old colour word</span><input id="dOld" value="'+esc(guessColour(s))+'"></div><div><span class="pclab">New colour word</span><input id="dNew" placeholder="e.g. black"></div></div>',
     [{l:'Create copy',c:'btn-gold',f:function(){var nc=$('dCode').value.trim().toUpperCase(),o=$('dOld').value.trim(),nw=$('dNew').value.trim();
-      if(!nc||nc===cur){$('dCode').focus();return;}if(get(nc)){alert(nc+' already exists.');return;}
+      if(!nc||nc===cur){$('dCode').focus();return;}if(savedStyle(nc)){alert(nc+' already exists.');return;}
       var n=clone(s);n.code=nc;delete n.editedAt;
       if(o&&nw){var re=new RegExp(o.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'ig');var sw=function(v){return typeof v==='string'?v.replace(re,function(m){return m===m.toUpperCase()?nw.toUpperCase():(m[0]===m[0].toUpperCase()?nw[0].toUpperCase()+nw.slice(1):nw.toLowerCase());}):v;};
         n.name=sw(n.name);n.desc=sw(n.desc);n.fabrics.forEach(function(f){f[0]=sw(f[0]);});n.trims.forEach(function(t){t[0]=sw(t[0]);t[1]=sw(t[1]);});n.mfg=n.mfg.map(sw);n.fin=n.fin.map(sw);}
       n.markerMain='';n.markerMesh='';n.alias=[];
-      EDITS.styles[nc]=n;BASE.order.push(nc);cur=nc;saveEdits();closeModal();renderAll();}}]);
+      DRAFT={code:nc,style:n,charts:{},chartCols:{}};BASE.order.push(nc);cur=nc;saveDraftStore();closeModal();renderAll();}}]);
   setTimeout(function(){$('dNew').focus();},0);
 }
 function guessColour(s){var m=(s.name||'').match(/\b(white|black|navy|grey|gray|red|blue|green|natural|biscuit|stone|coral|khaki|cocoa|pink|denim|charcoal|burgundy|royal|bottle green|slate)\b/i);return m?m[1]:'';}
@@ -702,15 +780,15 @@ function guessColour(s){var m=(s.name||'').match(/\b(white|black|navy|grey|gray|
 var OPS=[
  {id:'replace',lab:'Find & replace text'},{id:'set',lab:'Set a value'},{id:'addtrim',lab:'Add a trim line'},{id:'deltrim',lab:'Remove a trim'},{id:'fabric',lab:'Swap a fabric code'},{id:'lines',lab:'Add a manufacturing / finishing line'}
 ];
-function showTab(t){tab=t;$('tabStyles').style.display=t==='styles'?'':'none';$('tabBulk').style.display=t==='bulk'?'':'none';$('navStyles').className='btn'+(t==='styles'?' on':'');$('navBulk').className='btn'+(t==='bulk'?' on':'');if(t==='bulk')renderBulk();}
-function bulkVisible(){var ql=bq.trim().toLowerCase().split(/\s+/).filter(Boolean);return BASE.order.filter(function(c){var s=get(c);if(!s)return false;if(!ql.length)return true;var hay=(c+' '+s.name+' '+s.desc+' '+s.variant).toLowerCase();return ql.every(function(w){return hay.indexOf(w)>=0;});});}
+function showTab(t){if(t==='bulk'&&DRAFT&&isDirty()){guardLeave(function(){showTab('bulk');});return;}tab=t;$('tabStyles').style.display=t==='styles'?'':'none';$('tabBulk').style.display=t==='bulk'?'':'none';$('navStyles').className='btn'+(t==='styles'?' on':'');$('navBulk').className='btn'+(t==='bulk'?' on':'');if(t==='bulk')renderBulk();}
+function bulkVisible(){var ql=bq.trim().toLowerCase().split(/\s+/).filter(Boolean);return BASE.order.filter(function(c){var s=savedStyle(c);if(!s)return false;if(!ql.length)return true;var hay=(c+' '+s.name+' '+s.desc+' '+s.variant).toLowerCase();return ql.every(function(w){return hay.indexOf(w)>=0;});});}
 function bulkSelVisible(on){bulkVisible().forEach(function(c){if(on)bulkSel[c]=true;else delete bulkSel[c];});renderBulk();}
 function bulkToggle(c,on){if(on)bulkSel[c]=true;else delete bulkSel[c];renderBulkCount();renderOp();}
-function selCodes(){return Object.keys(bulkSel).filter(function(c){return get(c);});}
+function selCodes(){return Object.keys(bulkSel).filter(function(c){return savedStyle(c);});}
 function renderBulkCount(){$('bulkCount').textContent=selCodes().length+' ticked';}
 function renderBulk(){
   var v=bulkVisible();var h='';
-  v.forEach(function(c){var s=get(c);h+='<li><input type="checkbox" '+(bulkSel[c]?'checked':'')+' onchange="bulkToggle(\''+esc(c)+'\',this.checked)"><span class="c">'+esc(c)+'</span><span class="n">'+esc(s.name)+'</span>'+(isChanged(c)?'<span class="tag alt">changed</span>':'')+'</li>';});
+  v.forEach(function(c){var s=savedStyle(c);h+='<li><input type="checkbox" '+(bulkSel[c]?'checked':'')+' onchange="bulkToggle(\''+esc(c)+'\',this.checked)"><span class="c">'+esc(c)+'</span><span class="n">'+esc(s.name)+'</span>'+(isChanged(c)?'<span class="tag alt">changed</span>':'')+'</li>';});
   $('bulkList').innerHTML=h||'<li style="color:var(--mut)">Nothing matches.</li>';renderBulkCount();
   $('ops').innerHTML=OPS.map(function(o){return '<span class="op'+(curOp===o.id?' on':'')+'" onclick="curOp=\''+o.id+'\';renderBulk()">'+esc(o.lab)+'</span>';}).join('');
   renderOp();
@@ -757,16 +835,18 @@ function renderOp(){
 }
 function renderOpPrev(){
   var codes=selCodes();var rows=[],tot=0;
-  codes.forEach(function(c){var s=clone(get(c));var n=opApplyTo(s,true);if(n){rows.push([c,s.name,n,sizesFor(s).length]);tot+=n;}});
+  codes.forEach(function(c){var s=clone(savedStyle(c));var n=opApplyTo(s,true);if(n){rows.push([c,s.name,n,sizesFor(s).length]);tot+=n;}});
   var ok=rows.length>0;$('opSum').textContent=codes.length?(rows.length+' of '+codes.length+' ticked styles would change · '+tot+' edit'+(tot===1?'':'s')):'tick some styles on the left';
   $('opPrev').innerHTML=ok?'<table class="pctbl view"><tr><th>Style</th><th>Name</th><th style="text-align:right">Edits</th><th style="text-align:right">Product codes affected</th></tr>'+rows.map(function(r){return '<tr><td class="mono" style="font-weight:700;color:var(--navy)">'+esc(r[0])+'</td><td>'+esc(r[1])+'</td><td style="text-align:right">'+r[2]+'</td><td style="text-align:right">'+r[3]+'</td></tr>';}).join('')+'</table>':'<p class="pcnote">'+(codes.length?'Nothing would change with these settings.':'Use the search above and tick the styles to include.')+'</p>';
   $('opApply').disabled=!ok;
 }
 function opApply(){
+  if(DRAFT&&isDirty()){alert(DRAFT.code+' has unsaved changes on the Styles tab. Save & close it (or close without saving) before a bulk edit.');return;}
+  if(DRAFT){DRAFT=null;saveDraftStore();}
   var codes=selCodes(),done=0,pc=0;
-  codes.forEach(function(c){var trial=clone(get(c));if(!opApplyTo(trial,true))return;var s=edit(c);opApplyTo(s,false);settle(c);done++;pc+=sizesFor(get(c)).length;});
-  saveEdits();renderChg();renderChips();renderList();renderBulk();
-  var sum=$('opSum');if(sum)sum.textContent='Applied to '+done+' style'+(done===1?'':'s')+' ('+pc+' product codes). They now show as changed and are in the export.';
+  codes.forEach(function(c){var trial=clone(savedStyle(c));if(!opApplyTo(trial,true))return;var s=editSaved(c);opApplyTo(s,false);settleSaved(c);done++;pc+=sizesFor(savedStyle(c)).length;});
+  saveEdits();renderChg();renderChips();renderList();renderBulk();if(cur)renderEditor();
+  var sum=$('opSum');if(sum)sum.textContent='Applied and saved on '+done+' style'+(done===1?'':'s')+' ('+pc+' product codes). They are waiting on Export for PM.';
 }
 $('bq').addEventListener('input',function(e){bq=e.target.value;renderBulk();});
 
@@ -774,33 +854,35 @@ $('bq').addEventListener('input',function(e){bq=e.target.value;renderBulk();});
 function buildExport(all,withCosting){
   var codes=all?BASE.order.slice():changedCodes();
   if(withCosting&&!all)costingOnly().forEach(function(c){if(codes.indexOf(c)<0)codes.push(c);});
-  var styles=codes.map(function(c){var s=clone(get(c));s.mfg=tidySteps(s.mfg);s.fin=tidySteps(s.fin);if(isChanged(c)||BASE.costing[c])s.editedAt=today();return s;});
+  var styles=codes.map(function(c){var s=clone(savedStyle(c));s.mfg=tidySteps(s.mfg);s.fin=tidySteps(s.fin);if(isChanged(c)||BASE.costing[c])s.editedAt=today();return s;});
   var charts={},cols={};
   Object.keys(EDITS.charts).forEach(function(k){if(chartChanged(k))charts[k]=EDITS.charts[k];});
   Object.keys(EDITS.chartCols).forEach(function(k){if(chartChanged(k))cols[k]=EDITS.chartCols[k];});
   /* a costing product's measurement chart travels with it */
-  codes.forEach(function(c){if(!BASE.costing[c])return;var k=get(c).chart;if(!k)return;if(!(k in charts))charts[k]=chartRows(k);if(!(k in cols)){var cc=chartCols(k);if(cc)cols[k]=cc;}});
-  if(all){Object.keys(BASE.charts).forEach(function(k){if(!(k in charts))charts[k]=chartRows(k);});Object.keys(BASE.chartCols).forEach(function(k){if(!(k in cols))cols[k]=chartCols(k);});}
+  codes.forEach(function(c){if(!BASE.costing[c])return;var k=savedStyle(c).chart;if(!k)return;if(!(k in charts))charts[k]=savedChartRows(k);if(!(k in cols)){var cc=savedChartCols(k);if(cc)cols[k]=cc;}});
+  if(all){Object.keys(BASE.charts).forEach(function(k){if(!(k in charts))charts[k]=savedChartRows(k);});Object.keys(BASE.chartCols).forEach(function(k){if(!(k in cols))cols[k]=savedChartCols(k);});}
   return {source:'works-order-editor',exportedAt:new Date().toISOString(),mode:all?'all':'changes',styleCount:styles.length,styles:styles,charts:charts,chartCols:cols};
 }
 function csvCell(v){v=String(v==null?'':v);return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;}
 function buildCSV(){
   var head=['Product code','Style template','Size','Name','Chart','Lectra','Variant','Marker','Fabric m','Mesh m','Fabrics','Trims','Machine mins','Finishing mins','Cut batch','Cut mins','Changed'];var out=[head.join(',')];
-  BASE.order.forEach(function(c){var s=get(c);if(!s)return;sizesFor(s).forEach(function(z){var mk=BASE.markers[z.code];
+  BASE.order.forEach(function(c){var s=savedStyle(c);if(!s)return;sizesFor(s).forEach(function(z){var mk=BASE.markers[z.code];
     out.push([z.code,c,z.size==null?'One size':z.size,s.name,s.chart,s.lectra,s.variant,mk?mk[2]:'',mk?mk[0]:(s.fabrics[0]?s.fabrics[0][3]:''),mk?mk[1]:'',s.fabrics.map(function(f){return f[1];}).filter(Boolean).join('; '),s.trims.map(function(t){return (t[0]||t[3])+(t[2]!==''?' x '+t[2]:'');}).join('; '),s.machMins,s.finMins,s.cutBatch,s.cutMins,isChanged(c)?'yes':''].map(csvCell).join(','));});});
   return out.join('\n');
 }
 function openExport(){
   var n=changedCodes().length,ch=Object.keys(EDITS.charts).concat(Object.keys(EDITS.chartCols)).filter(function(k,i,a){return a.indexOf(k)===i&&chartChanged(k);}).length;
   var co=costingOnly().filter(function(c){return !isChanged(c);}).length;
-  var body='<div class="g2" style="margin-bottom:12px">'
-    +'<label class="chk"><input type="radio" name="xm" value="changes" checked> Changes only — '+n+' style'+(n===1?'':'s')+(ch?' + '+ch+' chart'+(ch===1?'':'s'):'')+'</label>'
+  var body=(DRAFT&&isDirty()?'<p class="pcwarn"><strong>'+esc(DRAFT.code)+'</strong> has unsaved changes — they are not in this file. Save &amp; close it first if it should go to the PM.</p>':'')
+    +'<div class="g2" style="margin-bottom:12px">'
+    +'<label class="chk"><input type="radio" name="xm" value="changes" checked> Saved changes only — '+n+' style'+(n===1?'':'s')+(ch?' + '+ch+' chart'+(ch===1?'':'s'):'')+'</label>'
     +'<label class="chk"><input type="radio" name="xm" value="all"> Everything — all '+BASE.order.length+' styles</label>'
     +'<label class="chk"><input type="radio" name="xm" value="csv"> Per product code (.csv) for checking in Excel</label></div>'
     +(co?'<label class="chk" style="margin-bottom:12px"><input type="checkbox" id="xCost" checked> Also include '+co+' unedited product'+(co===1?'':'s')+' from the costing app the buffer app does not have yet</label>':'')
     +'<div class="note">Send the JSON to the PM to load in the buffer app with <strong>Special Makes → Import from costing</strong> (the same button as a costing export). Each style lands in the app\'s saved edits under its code, so an edited stock style replaces what the app prints for it and a new code is added under Imported from costing — the baked-in master is left alone. The PM then presses <strong>Publish for team</strong> so data.json carries it to everyone, and this editor picks it up on the next open.</div>'
     +'<textarea class="out" id="xOut" readonly style="margin-top:12px"></textarea>';
-  modal('Export for buffer app','',body,[{l:'Copy',c:'',f:function(b){var t=$('xOut').value;if(navigator.clipboard)navigator.clipboard.writeText(t).then(function(){b.textContent='Copied';});else{$('xOut').select();}}},{l:'Download',c:'btn-gold',f:function(){var m=document.querySelector('[name=xm]:checked').value;var t=$('xOut').value;var nm=m==='csv'?'works-orders-per-code-'+today()+'.csv':'style-edits-'+(m==='all'?'all':'changes')+'-'+today()+'.json';dl(nm,t,m==='csv'?'text/csv':'application/json');}}]);
+  modal('Export for PM','',body,[{l:'Copy',c:'',f:function(b){var t=$('xOut').value;if(navigator.clipboard)navigator.clipboard.writeText(t).then(function(){b.textContent='Copied';});else{$('xOut').select();}}},{l:'Download',c:'btn-gold',f:function(b){var m=document.querySelector('[name=xm]:checked').value;var t=$('xOut').value;var nm=m==='csv'?'works-orders-per-code-'+today()+'.csv':'style-edits-'+(m==='all'?'all':'changes')+'-'+today()+'.json';dl(nm,t,m==='csv'?'text/csv':'application/json');
+    if(m!=='csv'){var xc=$('xCost');markExported(!xc||xc.checked);b.textContent='Downloaded';b.disabled=true;}}}]);
   function fill(){var m=document.querySelector('[name=xm]:checked').value;var xc=$('xCost');$('xOut').value=m==='csv'?buildCSV():JSON.stringify(buildExport(m==='all',!xc||xc.checked),null,1);}
   document.querySelectorAll('[name=xm],#xCost').forEach(function(r){r.addEventListener('change',fill);});fill();
 }
@@ -915,7 +997,8 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')closeModal()
 /* ═══════════ start ═══════════ */
 $('q').addEventListener('input',function(e){q=e.target.value;renderList();});
 $('fShow').addEventListener('change',function(){renderChips();renderList();});
-(function(){ if(TIBARD_LOGO){$('hdrLogo').src=TIBARD_LOGO;}else{$('hdrLogo').style.display='none';} loadEdits(); libLoadStore(); liveLoad(); libLoad(); costingLoad(); })();
+(function(){ if(TIBARD_LOGO){$('hdrLogo').src=TIBARD_LOGO;}else{$('hdrLogo').style.display='none';} loadEdits(); loadDraftStore(); loadExported(); libLoadStore(); liveLoad(); libLoad(); costingLoad(); })();
+document.addEventListener('keydown',function(e){if((e.ctrlKey||e.metaKey)&&String(e.key).toLowerCase()==='s'&&tab==='styles'&&cur){e.preventDefault();saveStay();}});
 </script>
 </body>
 </html>
