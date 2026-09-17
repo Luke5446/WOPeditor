@@ -380,7 +380,7 @@ function fromCosting(d){
     cutBatch:d.cutBatch||1,cutMins:d.cutMins||0,oneSize:!!d.oneSize,
     markerMain:d.markerMain||'',markerMesh:d.markerMesh||'',markerLen:d.markerLen||null,layQty:d.layQty||null,
     hasMesh:!!d.hasMesh,meshLen:d.meshLen||null,meshLay:d.meshLay||null,sr:d.sr||'',srVersion:d.srVersion||null,customer:d.customer||'',
-    brandType:d.brandType||'',brandPlace:d.brandPlace||'',logoImg:d.logoImg||'',placeImg:d.placeImg||''},{});
+    brandType:d.brandType||'',brandPlace:d.brandPlace||'',logoImg:d.logoImg||'',logo2Img:d.logo2Img||'',placeImg:d.placeImg||''},{});
 }
 
 /* ═══════════ products converted in the costing app ═══════════
@@ -399,7 +399,7 @@ function costingProduct(s){
     trims:(s.trims||[]).map(function(x){return [x.code||'',x.desc||'',x.qty||'',pn(x.cost)||null];}),
     mfg:lines(s.mfg),fin:lines(s.fin),machMins:pn(s.machMins)||null,finMins:pn(s.finMins)||null,cutBatch:pn(s.cutBatch)||35,cutMins:pn(s.cutMins)||15,
     oneSize:true,sr:s.ref||'',srVersion:s.version||1,customer:s.customer||'',brandType:s.brandType||'None',brandPlace:s.brandPlace||'',
-    logoImg:(branded&&s.logoImg)?s.logoImg:'',placeImg:(branded&&s.placeImg)?s.placeImg:''};
+    logoImg:(branded&&s.logoImg)?s.logoImg:'',logo2Img:(branded&&s.logo2Img)?s.logo2Img:'',placeImg:(branded&&s.placeImg)?s.placeImg:''};
 }
 function applyCosting(){
   if(!COSTPUB||!Array.isArray(COSTPUB.srs)||!BASE.order.length)return;
@@ -624,7 +624,7 @@ function renderEditor(){
     +'<div class="pcrow" style="grid-template-columns:180px 1fr">'
     +'<div><span class="pclab">Customer branding</span><select data-f="brandType">'+['None','EMB','DTF'].map(function(v){return '<option'+(v===bt?' selected':'')+'>'+v+'</option>';}).join('')+'</select></div>'
     +fld('Logo / branding placement','brandPlace',s.brandPlace,'text','e.g. customer logo left chest, 8 cm wide')+'</div>'
-    +(s.logoImg||s.placeImg?'<div class="pcnote">'+(s.logoImg?'Customer logo <img src="'+esc(s.logoImg)+'" alt="" style="max-height:60px;vertical-align:middle;margin:0 14px 0 8px;border:1px solid var(--line);border-radius:4px">':'')+(s.placeImg?'Placement photo <img src="'+esc(s.placeImg)+'" alt="" style="max-height:60px;vertical-align:middle;margin-left:8px;border:1px solid var(--line);border-radius:4px">':'')+' — attached in the costing app, printed on the works order.</div>':'')
+    +(s.logoImg||s.logo2Img||s.placeImg?'<div class="pcnote">'+(s.logoImg?'Customer logo <img src="'+esc(s.logoImg)+'" alt="" style="max-height:60px;vertical-align:middle;margin:0 14px 0 8px;border:1px solid var(--line);border-radius:4px">':'')+(s.logo2Img?'Second logo <img src="'+esc(s.logo2Img)+'" alt="" style="max-height:60px;vertical-align:middle;margin:0 14px 0 8px;border:1px solid var(--line);border-radius:4px">':'')+(s.placeImg?'Placement photo <img src="'+esc(s.placeImg)+'" alt="" style="max-height:60px;vertical-align:middle;margin-left:8px;border:1px solid var(--line);border-radius:4px">':'')+' — attached in the costing app, printed on the works order.</div>':'')
     +'</div></div>';
   /* 2 · fabrics — Sage code first, picked from the costing app list */
   h+='<div class="pcsec"><h4>Fabrics <span class="r">type or pick a Sage code — description, £/m and location fill in from the price list · m per unit prints on the works order; cost travels but is never printed</span></h4><div class="in tw"><table class="pctbl"><tr><th style="width:17%">Fabric code (Sage)</th><th>Description</th><th style="width:110px">Rating (m per unit)</th><th style="width:90px">Cost £/m</th><th style="width:90px">Location</th><th style="width:30px"></th></tr>';
