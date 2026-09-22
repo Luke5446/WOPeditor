@@ -251,6 +251,7 @@ var cur=null, tab='styles', q='', grp='all', bq='', bulkSel={}, curOp='replace';
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function clone(o){return JSON.parse(JSON.stringify(o));}
 function today(){return new Date().toISOString().slice(0,10);}
+function fmtD(s){s=String(s||'').slice(0,10);var p=s.split('-');return p.length===3?p[2]+'/'+p[1]+'/'+p[0]:s;}
 function pn(v){var f=parseFloat(v);return isNaN(f)?null:f;}
 function $(id){return document.getElementById(id);}
 
@@ -479,7 +480,7 @@ function saveDraftStore(){try{if(DRAFT)localStorage.setItem(DRAFT_KEY,JSON.strin
 function loadDraftStore(){try{var d=JSON.parse(localStorage.getItem(DRAFT_KEY)||'null');if(d&&d.code&&d.style){DRAFT={code:String(d.code).toUpperCase(),style:unify(d.style,{}),charts:d.charts||{},chartCols:d.chartCols||{}};cur=DRAFT.code;}}catch(e){}}
 function saveDraft(){ /* commit the draft to the saved changes */
   if(!DRAFT)return false;var c=DRAFT.code;
-  if(isNew(c)||JSON.stringify(strip(DRAFT.style))!==JSON.stringify(strip(BASE.styles[c])))EDITS.styles[c]=DRAFT.style;else delete EDITS.styles[c];
+  if(isNew(c)||JSON.stringify(strip(DRAFT.style))!==JSON.stringify(strip(BASE.styles[c]))){DRAFT.style.editedAt=today();EDITS.styles[c]=DRAFT.style;}else delete EDITS.styles[c];
   Object.keys(DRAFT.charts).forEach(function(k){if(JSON.stringify(DRAFT.charts[k])===JSON.stringify(BASE.charts[k]||null))delete EDITS.charts[k];else EDITS.charts[k]=DRAFT.charts[k];});
   Object.keys(DRAFT.chartCols).forEach(function(k){if(JSON.stringify(DRAFT.chartCols[k])===JSON.stringify(BASE.chartCols[k]||null))delete EDITS.chartCols[k];else EDITS.chartCols[k]=DRAFT.chartCols[k];});
   DRAFT=null;saveDraftStore();saveEdits();return true;
@@ -571,7 +572,7 @@ function renderList(){
   v.forEach(function(c){var s=get(c);var sz=sizesFor(s).length;
     h+='<li class="'+(c===cur?'on':'')+'" onclick="pick(\''+esc(c)+'\')"><span class="c">'+esc(c).replace('--','<span style="color:#7A5B14">--</span>')
       +(dirtyHere(c)?'<span class="tag draft">unsaved</span>':(isChanged(c)?'<span class="tag '+(isNew(c)?'new':'alt')+'">'+(isNew(c)?'new':'saved')+'</span>':''))+(BASE.team[c]&&!isChanged(c)?'<span class="tag team">team</span>':'')+(BASE.costing[c]?'<span class="tag cost">costing</span>':'')+(s.template?'<span class="tag alt" title="A starting point for the costing app: not a live Sage code, so the buffer app never prints it as one">template</span>':'')+'</span>'
-      +'<span class="n">'+esc(s.name||'')+' · '+sz+' code'+(sz===1?'':'s')+(s.machMins==null?' · no times':'')+'</span></li>';});
+      +'<span class="n">'+esc(s.name||'')+' · '+sz+' code'+(sz===1?'':'s')+(s.machMins==null?' · no times':'')+(function(){var le=lastEdited(c);return le?' · edited '+esc(fmtD(le.date)):'';})()+'</span></li>';});
   $('styleList').innerHTML=h||'<li style="color:var(--mut);cursor:default">Nothing matches.</li>';
 }
 function pick(c){if(c===cur)return;guardLeave(function(){cur=c;renderList();renderEditor();});}
@@ -611,7 +612,8 @@ function renderEditor(){
   var codesTxt=sizes.length>1?('<b>all '+sizes.length+' product codes</b>: <span class="mono">'+esc(sizes[0].code)+'</span> through <span class="mono">'+esc(sizes[sizes.length-1].code)+'</span>'):'<b>one product code</b>: <span class="mono">'+esc(sizes[0]?sizes[0].code:c)+'</span>';
   var h='<div class="hero"><div><div class="code">'+esc(c).replace('--','<span class="slot">--</span>')+'</div><div class="name">'+esc(s.name||'(no name yet)')+'</div>'
     +'<div class="cas">One edit here updates '+codesTxt+'.'+(s.colourways?' The token after the dash is a colour code on this style.':(sizes.length>1?' Sizes come from the size chart below; markers are looked up per size from the cutting room sheet.':''))
-    +(BASE.costing[c]?'<br><span class="tag cost">costing</span> Converted in the costing app'+(s.sr?' from '+esc(s.sr):'')+' and not in the buffer app yet. It goes into the export (with or without edits) so the buffer app receives it; once published there, the buffer app\'s copy takes over.':'')+'</div></div>'
+    +(BASE.costing[c]?'<br><span class="tag cost">costing</span> Converted in the costing app'+(s.sr?' from '+esc(s.sr):'')+' and not in the buffer app yet. It goes into the export (with or without edits) so the buffer app receives it; once published there, the buffer app\'s copy takes over.':'')
+    +(function(){var le=lastEdited(c);return '<br><b>Last edited</b> '+(le?esc(fmtD(le.date))+' · '+esc(le.where):'never — as baked into the buffer app');})()+'</div></div>'
     +'<div class="acts">'+heroActs(c)+'</div></div>';
   h+='<div class="body">';
   /* 1 · details — the costing app's "quote / sample details": who, what, branding */
@@ -684,6 +686,15 @@ function previewHTML(s){
 }
 function refreshPreview(){var s=get(cur);var p=$('prev');if(!s||!p)return;p.innerHTML=previewHTML(s);var t=p.firstChild;t.classList.add('flash');}
 function afterEdit(full){saveDraftStore();renderChg();renderChips();renderList();if(full)renderEditor();else{refreshPreview();updateHeroTag();}}
+/* when a style was last edited and where: saved here (not yet with the PM), by the team in the buffer app, or converted in the costing app */
+function lastEdited(c){
+  var e=EDITS.styles[c],b=BASE.styles[c];
+  if(e&&isChanged(c)&&e.editedAt)return {date:e.editedAt,where:'saved here'+(pendingExport()?', not yet sent to the PM':'')};
+  if(b&&b.editedAt)return {date:b.editedAt,where:'in the Works Order Editor, published by the buffer app'};
+  if(b&&b.importedAt)return {date:b.importedAt,where:'imported into the buffer app from the costing app'};
+  if(BASE.costing[c]&&typeof BASE.costing[c]==='string')return {date:BASE.costing[c],where:'converted in the costing app'};
+  return null;
+}
 function heroActs(c){
   var ch=isChanged(c),nw=isNew(c),dirty=dirtyHere(c),st='';
   if(dirty)st='<span class="tag draft" style="align-self:center;padding:5px 10px">Unsaved: '+esc(sections(c,DRAFT.style,savedStyle(c)).join(', '))+'</span>';
@@ -692,6 +703,7 @@ function heroActs(c){
   return st+'<button class="btn btn-sm btn-gold" onclick="saveClose()">Save &amp; close</button>'
     +'<button class="btn btn-sm" onclick="closeNoSave()">'+(dirty?'Close without saving':'Close')+'</button>'
     +'<button class="btn btn-sm" onclick="dupStyle()">Duplicate as another colour</button>'
+    +'<button class="btn btn-sm btn-navy" onclick="printWO()">&#128424; Print works order for IT</button>'
     +(ch&&!dirty?'<button class="btn btn-sm" onclick="undoStyle()">'+(nw?'Delete new style':'Revert to buffer app copy')+'</button>':'');
 }
 function updateHeroTag(){var s=get(cur);if(!s)return;var acts=document.querySelector('.hero .acts');if(!acts)return;acts.innerHTML=heroActs(cur);
@@ -854,7 +866,7 @@ $('bq').addEventListener('input',function(e){bq=e.target.value;renderBulk();});
 function buildExport(all,withCosting){
   var codes=all?BASE.order.slice():changedCodes();
   if(withCosting&&!all)costingOnly().forEach(function(c){if(codes.indexOf(c)<0)codes.push(c);});
-  var styles=codes.map(function(c){var s=clone(savedStyle(c));s.mfg=tidySteps(s.mfg);s.fin=tidySteps(s.fin);if(isChanged(c)||BASE.costing[c])s.editedAt=today();return s;});
+  var styles=codes.map(function(c){var s=clone(savedStyle(c));s.mfg=tidySteps(s.mfg);s.fin=tidySteps(s.fin);if(isChanged(c)||BASE.costing[c])s.editedAt=s.editedAt||today();return s;});
   var charts={},cols={};
   Object.keys(EDITS.charts).forEach(function(k){if(chartChanged(k))charts[k]=EDITS.charts[k];});
   Object.keys(EDITS.chartCols).forEach(function(k){if(chartChanged(k))cols[k]=EDITS.chartCols[k];});
@@ -981,6 +993,108 @@ function openLists(){
       if(!out.length){alert('No usable rows found — expected at least a code and a description per line.');return;}
       PASTED[type]=out;libSaveStore();libBuild();openLists();
       $('mBody').insertAdjacentHTML('afterbegin','<div class="pcok">'+out.length+' '+type+' loaded and ready to pick.</div>');}}]);
+}
+
+/* ═══════════ print works order for IT ═══════════
+   The same A4 product works order the costing app prints from a converted product, built from the
+   saved copy of the style so the paper matches what the PM receives.                                */
+function printWO(){
+  if(!cur)return;
+  if(dirtyHere(cur)){if(!confirm('Save '+cur+' first, so the printed works order matches what goes to the PM?'))return;saveStay();}
+  var s=savedStyle(cur);if(!s)return;
+  var q=prompt('Print product works order for '+cur+' — for IT to set the product up in Sage.\n\nQuantity to make:','');
+  if(q===null)return;q=pn(q);if(!(q>0)){alert('Enter a quantity greater than 0.');return;}
+  var html=buildWO(s,q);
+  var w=window.open('','_blank');if(!w){alert('Pop-up blocked — allow pop-ups for this site and try again.');return;}
+  w.document.open();w.document.write(html);w.document.close();
+}
+function buildWO(s,qty){
+  var e=esc,c=s.code,sizes=sizesFor(s),le=lastEdited(c),todayS=new Date().toLocaleDateString('en-GB');
+  var cutBatch=pn(s.cutBatch)||35,cutMins=pn(s.cutMins)||15,cutTot=Math.ceil(qty/cutBatch)*cutMins;
+  var mkLen=pn(s.markerLen),layQ=pn(s.layQty),plies=(mkLen>0&&layQ>0)?Math.ceil(qty/layQ):null;
+  var mach=pn(s.machMins),fin=pn(s.finMins),machTot=mach!=null?mach*qty:null,finTot=fin!=null?fin*qty:null,grand=(machTot!=null&&finTot!=null)?cutTot+machTot+finTot:null;
+  var fx=function(v){return v==null?'—':String(Math.round(v*10)/10);};
+  var branded=s.brandType&&s.brandType!=='None';
+  var codeTxt=sizes.length>1?e(c)+' — '+sizes.length+' codes, '+e(sizes[0].code)+' to '+e(sizes[sizes.length-1].code):e(sizes[0]?sizes[0].code:c);
+  var h='<!DOCTYPE html><html><head><meta charset="utf-8"><title>Product WO '+e(c)+'</title><style>'
+    +'@page{size:A4 portrait;margin:12mm}*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}'
+    +'body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0;font-size:13px}'
+    +'.page{page-break-after:always}.page:last-child{page-break-after:auto}'
+    +'.hdr{background:#fff;color:#1F3864;padding:0 0 10px;border-bottom:4px solid #1F3864;display:flex;justify-content:space-between;align-items:center}'
+    +'.hdr h1{margin:0;font-size:24px;letter-spacing:.5px}'
+    +'.band{background:#5b7ba6;color:#fff;font-weight:700;font-size:14px;padding:6px 10px;margin:14px 0 0}'
+    +'table{width:100%;border-collapse:collapse}th,td{border:1px solid #B7BEC8;padding:6px 9px;text-align:left;vertical-align:top;font-size:13px}'
+    +'th{background:#EEF1F5;color:#44546A;width:26%;font-size:12px}'
+    +'.kv td{font-weight:700;font-size:14px}.num{width:5%;text-align:center;color:#44546A;font-weight:700}'
+    +'.times td,.times th{text-align:center}.times td:first-child,.times th:first-child{text-align:left}'
+    +'.tot td{background:#5b7ba6;color:#fff;font-weight:700}.sign td{height:34px}'
+    +'.smp{background:#1F3864;color:#fff;font-weight:800;padding:2px 10px;border-radius:8px;font-size:13px}'
+    +'.meas th{width:auto}</style></head><body>';
+  h+='<div class="page"><div class="hdr"><h1>PRODUCT WORKS ORDER &nbsp;&middot;&nbsp; '+e(c)+'</h1>'+(TIBARD_LOGO?'<img src="'+TIBARD_LOGO+'" alt="Tibard" style="height:40px">':'')+'</div>'
+    +'<p style="margin:10px 0 0"><span class="smp">'+(isNew(c)||BASE.costing[c]?'NEW PRODUCT — send to IT to set up in Sage':'UPDATED WORKS ORDER — send to IT')+'</span></p>'
+    +'<table class="kv" style="margin-top:12px">'
+    +'<tr><th>Printed</th><td>'+e(todayS)+'</td><th style="width:26%">Order qty</th><td>'+qty+'</td></tr>'
+    +'<tr><th>Customer</th><td>'+e(s.customer||'—')+'</td><th>Works order last edited</th><td>'+(le?e(fmtD(le.date))+' <span style="font-weight:400;font-size:12px">('+e(le.where.replace(/, not yet sent.*$/,''))+')</span>':'—')+'</td></tr>'
+    +'<tr><th>Garment</th><td colspan="3">'+e(s.name||'—')+'</td></tr>'
+    +'<tr><th>Product code'+(sizes.length>1?'s':'')+'</th><td colspan="3">'+codeTxt+'</td></tr>'
+    +(s.sr?'<tr><th>From sample</th><td colspan="3">'+e(s.sr)+(s.srVersion>1?' V'+e(s.srVersion):'')+'</td></tr>':'')
+    +'<tr><th>Garment weight</th><td colspan="3"><em style="color:#C00000">to be confirmed — weigh after the first production run</em></td></tr>'
+    +'</table>'
+    +'<div class="band">DESCRIPTION</div><table><tr><td>'+e(s.desc||'—')+'</td></tr></table>'
+    +'<div class="band">CUSTOMER BRANDING</div><table><tr><th>Type</th><td>'+e(s.brandType||'None')+'</td></tr>'
+    +(s.brandPlace?'<tr><th>Placement</th><td>'+e(s.brandPlace)+'</td></tr>':'')
+    +(branded&&s.logoImg?'<tr><th>Customer logo</th><td><img src="'+e(s.logoImg)+'" alt="customer logo" style="max-height:80px;max-width:240px"></td></tr>':'')
+    +(branded&&s.placeImg?'<tr><th>Logo placement photo</th><td><img src="'+e(s.placeImg)+'" alt="logo placement photo" style="max-height:200px;max-width:300px"></td></tr>':'')+'</table>'
+    +'<div class="band">CUTTING</div><table>';
+  if(sizes.length>1){
+    h+='<tr><th>Markers</th><td>Per size — from the cutting room sheet (listed on page 2)</td></tr>';
+  } else {
+    h+='<tr><th>Marker number (main)</th><td style="font-weight:700;font-size:15px">'+e(s.markerMain||'—')+'</td></tr>'
+      +(s.hasMesh?'<tr><th>Marker number (mesh)</th><td style="font-weight:700">'+e(s.markerMesh||'—')+'</td></tr>'
+        +'<tr><th>Mesh marker length</th><td style="font-weight:700">'+(pn(s.meshLen)>0?e(s.meshLen)+' m':'—')+'</td></tr>'
+        +'<tr><th>Mesh lay qty</th><td style="font-weight:700">'+(pn(s.meshLay)>0?e(s.meshLay)+' per lay':'—')+'</td></tr>':'')
+      +'<tr><th>Marker length</th><td style="font-weight:700;font-size:15px">'+(mkLen>0?e(mkLen)+' m':'—')+'</td></tr>'
+      +'<tr><th>Lay qty</th><td style="font-weight:700;font-size:15px">'+(layQ>0?e(layQ)+' garment'+(layQ===1?'':'s')+' per lay':'—')+'</td></tr>'
+      +(plies?'<tr><th>Lay plan (qty '+qty+')</th><td style="font-weight:700">'+plies+' pl'+(plies===1?'y':'ies')+' of '+e(mkLen)+' m — total '+(plies*mkLen).toFixed(2)+' m</td></tr>':'');
+  }
+  h+=(s.lectra?'<tr><th>Lectra pattern</th><td>'+e(s.lectra)+(s.variant?' · variant '+e(s.variant):'')+'</td></tr>':'')+'</table>'
+    +'<div class="band">FABRIC</div><table><tr><th style="width:56%">Fabric</th><th>Sage code</th><th>Rating</th><th>Location</th></tr>';
+  if(!s.fabrics.length)h+='<tr><td colspan="4">—</td></tr>';
+  s.fabrics.forEach(function(f){h+='<tr><td>'+e(f[0]||'')+'</td><td><strong>'+e(f[1]||'')+'</strong></td><td>'+(f[3]!=null?e(f[3])+' m':'')+'</td><td><strong>'+e(f[2]||'')+'</strong></td></tr>';});
+  h+='</table><div class="band">TRIMS</div><table><tr><th>Sage code</th><th style="width:52%">Description</th><th>Qty per unit</th></tr>';
+  if(!s.trims.length)h+='<tr><td colspan="3">—</td></tr>';
+  s.trims.forEach(function(t){h+='<tr><td><strong>'+e(t[3]||'—')+'</strong></td><td>'+e((t[0]&&t[1])?t[0]+' — '+t[1]:(t[1]||t[0]||''))+'</td><td>'+e(t[2]==null?'':t[2])+'</td></tr>';});
+  h+='</table></div>';
+  h+='<div class="page"><div class="hdr"><h1 style="font-size:20px">MANUFACTURING &amp; TIMES</h1><div style="text-align:right;font-weight:700">'+e(c)+'<br><span style="font-weight:400;font-size:11px">Qty '+qty+'</span></div></div>'
+    +'<div class="band">MANUFACTURING DETAILS</div><table>';
+  var mf=tidySteps(s.mfg);if(!mf.length)mf=['—'];mf.forEach(function(m,ix){h+='<tr><td class="num">'+(ix+1)+'</td><td>'+e(m)+'</td></tr>';});
+  h+='</table><div class="band">FINISHING DETAILS</div><table>';
+  var fn=tidySteps(s.fin);if(!fn.length)fn=['—'];fn.forEach(function(m,ix){h+='<tr><td class="num">'+(ix+1)+'</td><td>'+e(m)+'</td></tr>';});
+  h+='</table><div class="band">PRODUCTION TIMES</div><table class="times">'
+    +'<tr><th style="width:40%">Operation</th><th>Time per unit (mins)</th><th>Total (mins)</th></tr>'
+    +'<tr><td>Cutting</td><td style="font-style:italic;color:#808080">'+cutMins+' mins per batch of '+cutBatch+'</td><td><strong>'+cutTot+'</strong></td></tr>'
+    +'<tr><td>Machining</td><td>'+(mach!=null?mach:'<em style="color:#C00000">to be set</em>')+'</td><td><strong>'+fx(machTot)+'</strong></td></tr>'
+    +'<tr><td>Finishing</td><td>'+(fin!=null?fin:'<em style="color:#C00000">to be set</em>')+'</td><td><strong>'+fx(finTot)+'</strong></td></tr>'
+    +'<tr class="tot"><td>TOTAL</td><td>'+(grand!=null?(grand/60).toFixed(1)+' hours':'—')+'</td><td>'+fx(grand)+'</td></tr></table>'
+    +'<div class="band">SIGN-OFF</div><table class="sign">'
+    +'<tr><th style="width:40%">Stage</th><th style="width:30%;background:#EEF1F5;color:#44546A">Name</th><th style="width:30%;background:#EEF1F5;color:#44546A">Date</th></tr>';
+  ['Raised by (Garment Technologist)','Added to Sage (IT)','Cutting complete','Machining complete','Finishing complete'].forEach(function(x){h+='<tr><td>'+x+'</td><td></td><td></td></tr>';});
+  h+='</table>';
+  var rows=s.chart?chartRows(s.chart):[],cols=s.chart?(chartCols(s.chart)||defaultCols(s)):null;
+  if(rows.length){
+    var w=Math.max(cols.length,rows.reduce(function(a,r){return Math.max(a,r.length);},0));
+    h+='<div class="band">'+(sizes.length>1?'SIZE CHART':'MEASUREMENTS')+'</div><table class="meas"><tr>';
+    for(var ci=0;ci<w;ci++)h+='<th>'+e(cols[ci]||'')+'</th>';h+='</tr>';
+    rows.forEach(function(r){h+='<tr>';for(var ci2=0;ci2<w;ci2++)h+='<td>'+e(r[ci2]==null?'':r[ci2])+'</td>';h+='</tr>';});
+    h+='</table>';
+  }
+  if(sizes.length>1){
+    h+='<div class="band">MARKERS PER SIZE</div><table><tr><th>Product code</th><th>Size</th><th>Marker</th><th>Fabric m</th><th>Mesh m</th></tr>';
+    sizes.forEach(function(z){var mk=BASE.markers[z.code]||null;h+='<tr><td><strong>'+e(z.code)+'</strong></td><td>'+e(z.size==null?'One size':z.size)+'</td><td>'+(mk?e(mk[2]):'—')+'</td><td>'+(mk?e(mk[0]):'—')+'</td><td>'+(mk&&mk[1]?e(mk[1]):'—')+'</td></tr>';});
+    h+='</table>';
+  }
+  h+='</div><script>window.onload=function(){window.print();};<\/script></body></html>';
+  return h;
 }
 
 /* ═══════════ modal ═══════════ */
