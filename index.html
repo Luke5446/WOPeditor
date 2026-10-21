@@ -245,7 +245,9 @@ var COSTPUB=null;   /* the costing app's published-data.json: quotes, SRs and co
    changes that go to the PM) until Save & close; Close without saving throws the draft away.       */
 var DRAFT=null;
 var DRAFT_KEY='tibard_woe_draft_v1', XP_KEY='tibard_woe_exported_v1';
-var EXPORTED={hash:'',at:''};   /* what was last downloaded for the PM, so the button can nag until the next one */
+/* 21 Oct 2026: "to send" is counted per style and chart, and a change the PM has imported and published
+   (data.json) settles even though the buffer app re-stamps it on import. Before, every publish left the count stuck. */
+var EXPORTED={hash:'',at:'',items:null};   /* what was last downloaded for the PM (one hash per style and chart), so the button can nag until the next one */
 var cur=null, tab='styles', q='', grp='all', bq='', bulkSel={}, curOp='replace';
 
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
@@ -311,8 +313,10 @@ function setBase(d,overlay){
     Object.keys(overlay.chartEdits||{}).forEach(function(k){BASE.charts[k]=overlay.chartEdits[k];});
     Object.keys(overlay.chartColEdits||{}).forEach(function(k){BASE.chartCols[k]=overlay.chartColEdits[k];});
   }
-  /* drop editor changes that now match the base */
-  Object.keys(EDITS.styles).forEach(function(c){if(BASE.styles[c]&&JSON.stringify(strip(EDITS.styles[c]))===JSON.stringify(strip(BASE.styles[c])))delete EDITS.styles[c];});
+  /* drop editor changes that now match the base (the PM imported and published them) */
+  Object.keys(EDITS.styles).forEach(function(c){if(landed(c))delete EDITS.styles[c];});
+  Object.keys(EDITS.charts).forEach(function(k){if(JSON.stringify(EDITS.charts[k])===JSON.stringify(BASE.charts[k]||null))delete EDITS.charts[k];});
+  Object.keys(EDITS.chartCols).forEach(function(k){if(JSON.stringify(EDITS.chartCols[k])===JSON.stringify(BASE.chartCols[k]||null))delete EDITS.chartCols[k];});
   saveEdits();
   if(DRAFT&&BASE.order.indexOf(DRAFT.code)<0)BASE.order.push(DRAFT.code);
   libBuild();
@@ -467,7 +471,16 @@ function newestPublish(list){
 function costingOnly(){return BASE.order.filter(function(c){return BASE.costing[c]&&!BASE.team[c];});}
 
 /* ═══════════ edits ═══════════ */
-function strip(s){var o=clone(s);delete o.editedAt;return o;}
+function strip(s){var o=clone(s);delete o.editedAt;delete o.importedAt;return o;}  /* stamps only: editedAt is ours, importedAt is the buffer app's */
+function isThreadRow(r){return /thread/i.test(String(r[0]||''))||/^CMP-THR/i.test(String(r[3]||''));}
+/* Does the saved change match what the buffer app now holds? The buffer app re-stamps a style on import
+   (importedAt) and sets the thread row to its standard metres (threadApplyStd), so a change that came back
+   through data.json with only those differences is settled, not still to send. */
+function landed(c){var e=EDITS.styles[c],b=BASE.styles[c];if(!e||!b)return false;
+  var a=strip(e),z=strip(b);
+  if(BASE.team[c]&&Array.isArray(a.trims)&&Array.isArray(z.trims)&&a.trims.length===z.trims.length)
+    a.trims.forEach(function(r,i){var t=z.trims[i];if(isThreadRow(r)&&isThreadRow(t)&&String(r[3]||'').toUpperCase()===String(t[3]||'').toUpperCase())r[2]=t[2];});
+  return JSON.stringify(a)===JSON.stringify(z);}
 function loadEdits(){try{var d=JSON.parse(localStorage.getItem(LS_KEY)||'null');if(d&&d.styles){EDITS=d;EDITS.charts=EDITS.charts||{};EDITS.chartCols=EDITS.chartCols||{};Object.keys(EDITS.styles).forEach(function(c){EDITS.styles[c]=unify(EDITS.styles[c],{});});}}catch(e){}}
 function saveEdits(){try{localStorage.setItem(LS_KEY,JSON.stringify(EDITS));}catch(e){}}
 function savedStyle(c){return EDITS.styles[c]||BASE.styles[c]||null;}           /* saved changes over the buffer app */
@@ -484,7 +497,7 @@ function editSaved(c){ /* bulk edit writes straight to the saved changes: Apply 
   return EDITS.styles[c];
 }
 function settleSaved(c){ /* drop a saved change that landed back on the base */
-  if(EDITS.styles[c]&&!isNew(c)&&JSON.stringify(strip(EDITS.styles[c]))===JSON.stringify(strip(BASE.styles[c])))delete EDITS.styles[c];
+  if(EDITS.styles[c]&&!isNew(c)&&landed(c))delete EDITS.styles[c];
   saveEdits();
 }
 function isDirty(){ /* does the open draft differ from what is saved? */
@@ -601,13 +614,22 @@ function renderChg(){var n=changedCodes().length,ch=Object.keys(EDITS.charts).co
   var b=$('expBtn'),pend=pendingExport();if(b){b.className='btn '+(pend?'btn-due':'btn-gold');b.textContent='Export for PM'+(pend?' · '+pend+' to send':'');b.title=pend?pend+' saved style'+(pend===1?'':'s')+' not yet downloaded for the PM':(EXPORTED.at?'Everything saved has been downloaded ('+EXPORTED.at.slice(0,10)+')':'Nothing waiting to go to the PM');}}
 function hashStr(s){var h=5381;for(var i=0;i<s.length;i++)h=((h<<5)+h+s.charCodeAt(i))|0;return String(h);}
 function exportHash(withCosting){var e=buildExport(false,withCosting);return hashStr(JSON.stringify({s:e.styles.map(strip),c:e.charts,k:e.chartCols}));}
-function pendingExport(){ /* saved styles that have not been downloaded since they were saved */
-  var e=buildExport(false,true);var n=e.styles.length;if(!n&&!Object.keys(e.charts).length)return 0;
+function exportItems(e){ /* one hash per style and per chart in an export, so a style counts as sent until it changes again */
+  var it={};e.styles.forEach(function(st){it[String(st.code).toUpperCase()]=hashStr(JSON.stringify(strip(st)));});
+  Object.keys(e.charts).forEach(function(k){it['chart:'+k]=hashStr(JSON.stringify([e.charts[k],e.chartCols[k]||null]));});
+  Object.keys(e.chartCols).forEach(function(k){if(!it['chart:'+k])it['chart:'+k]=hashStr(JSON.stringify([e.charts[k]||null,e.chartCols[k]]));});
+  return it;}
+function pendingExport(){ /* saved styles (and charts) that have not been downloaded since they were saved */
+  var e=buildExport(false,true);var it=exportItems(e);var keys=Object.keys(it);if(!keys.length)return 0;
+  if(EXPORTED.items){var n=keys.filter(function(k){return EXPORTED.items[k]!==it[k];}).length;return n;}
+  /* older record: one hash for the whole file. Styles the PM has since published drop out of the file and
+     change that hash, so fall back to the save date: saved on or before the download day counts as sent. */
   if(EXPORTED.hash&&(exportHash(true)===EXPORTED.hash||exportHash(false)===EXPORTED.hash))return 0;
-  return n||1;
+  if(EXPORTED.at){var day=EXPORTED.at.slice(0,10);return e.styles.filter(function(st){return isChanged(String(st.code).toUpperCase())&&(!st.editedAt||st.editedAt>day);}).length;}
+  return keys.length;
 }
 function loadExported(){try{var d=JSON.parse(localStorage.getItem(XP_KEY)||'null');if(d&&d.hash)EXPORTED=d;}catch(e){}}
-function markExported(withCosting){EXPORTED={hash:exportHash(withCosting),at:new Date().toISOString()};try{localStorage.setItem(XP_KEY,JSON.stringify(EXPORTED));}catch(e){}renderChg();}
+function markExported(withCosting){EXPORTED={hash:exportHash(withCosting),at:new Date().toISOString(),items:exportItems(buildExport(false,withCosting))};try{localStorage.setItem(XP_KEY,JSON.stringify(EXPORTED));}catch(e){}renderChg();}
 
 /* ═══════════ editor ═══════════ */
 function fld(lab,key,val,type,ph){return '<div><span class="pclab">'+esc(lab)+'</span><input '+(type==='number'?'type="number" step="any"':'type="text"')+' data-f="'+key+'" value="'+esc(val==null?'':val)+'"'+(ph?' placeholder="'+esc(ph)+'"':'')+'></div>';}
