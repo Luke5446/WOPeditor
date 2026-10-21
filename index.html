@@ -43,6 +43,8 @@ header .spacer{flex:1}
 .src.clk:hover{background:rgba(255,255,255,.22)}
 .chg{font-size:12px;font-weight:700;border-radius:10px;padding:5px 11px;background:rgba(255,255,255,.12);color:#fff}
 .chg.on{background:#fde68a;color:#78350f}
+.src.err .dot{background:var(--red)}
+.src.busy .dot{background:#60a5fa}
 main{max-width:1440px;margin:0 auto;padding:16px 16px 60px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;box-shadow:0 1px 3px rgba(20,30,50,.06)}
 .bar{padding:12px 14px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
@@ -173,6 +175,7 @@ textarea.out{width:100%;min-height:300px;font-family:Consolas,monospace;font-siz
   <span class="src snap" id="srcPill"><span class="dot"></span><span id="srcTxt">Loading…</span></span>
   <button class="src snap clk" id="libPill" onclick="openLists()" title="Fabric and trim price lists from the costing app — click to manage"><span class="dot"></span><span id="libTxt">Price lists…</span></button>
   <span class="chg" id="chgPill">Nothing to send</span>
+  <button class="src snap clk" id="cloudPill" onclick="cloudSetup()" title="Where the saved changes are kept — click to set this PC up"><span class="dot"></span><span id="cloudTxt">Saved in this browser</span></button>
   <button class="btn btn-ghost" onclick="loadFileClick()">Load file</button>
   <button class="btn btn-gold" id="expBtn" onclick="openExport()">Export for PM</button>
 </header>
@@ -230,6 +233,10 @@ var BUFFER_URL='https://luke5446.github.io/Tibard-Productionplan/';
 var COSTING_URL='https://luke5446.github.io/costing/';
 var LS_KEY='tibard_woe_v1';
 var LIB_KEY='tibard_woe_lists_v1';
+/* 21 Oct 2026: the saved changes live in edits.json in this repo, written through the GitHub API with a
+   token kept on the PC (Set up this PC), as the buffer app publishes data.json. The browser copy is a cache. */
+var WOE_REPO='Luke5446/WOPeditor', WOE_FILE='edits.json', WOE_TOKEN_KEY='tibard_woe_token';
+var WOE_API='https://api.github.com/repos/'+WOE_REPO+'/contents/'+WOE_FILE, WOE_PAGES='https://luke5446.github.io/WOPeditor/'+WOE_FILE;
 </script>
 <script>
 /* ═══════════ state ═══════════
@@ -482,7 +489,12 @@ function landed(c){var e=EDITS.styles[c],b=BASE.styles[c];if(!e||!b)return false
     a.trims.forEach(function(r,i){var t=z.trims[i];if(isThreadRow(r)&&isThreadRow(t)&&String(r[3]||'').toUpperCase()===String(t[3]||'').toUpperCase())r[2]=t[2];});
   return JSON.stringify(a)===JSON.stringify(z);}
 function loadEdits(){try{var d=JSON.parse(localStorage.getItem(LS_KEY)||'null');if(d&&d.styles){EDITS=d;EDITS.charts=EDITS.charts||{};EDITS.chartCols=EDITS.chartCols||{};Object.keys(EDITS.styles).forEach(function(c){EDITS.styles[c]=unify(EDITS.styles[c],{});});}}catch(e){}}
-function saveEdits(){try{localStorage.setItem(LS_KEY,JSON.stringify(EDITS));}catch(e){}}
+function editsHash(){return hashStr(JSON.stringify({s:EDITS.styles,c:EDITS.charts,k:EDITS.chartCols,x:EXPORTED}));}
+function saveEdits(){
+  var h=editsHash(); if(h!==CLOUD.localHash){CLOUD.localHash=h;EDITS.savedAt=new Date().toISOString();}   /* a save that changed nothing keeps its stamp */
+  try{localStorage.setItem(LS_KEY,JSON.stringify(EDITS));}catch(e){}
+  cloudQueue();
+}
 function savedStyle(c){return EDITS.styles[c]||BASE.styles[c]||null;}           /* saved changes over the buffer app */
 function get(c){return (DRAFT&&DRAFT.code===c)?DRAFT.style:savedStyle(c);}       /* what the editor shows: the draft while one is open */
 function isNew(c){return !BASE.styles[c];}
@@ -629,7 +641,121 @@ function pendingExport(){ /* saved styles (and charts) that have not been downlo
   return keys.length;
 }
 function loadExported(){try{var d=JSON.parse(localStorage.getItem(XP_KEY)||'null');if(d&&d.hash)EXPORTED=d;}catch(e){}}
-function markExported(withCosting){EXPORTED={hash:exportHash(withCosting),at:new Date().toISOString(),items:exportItems(buildExport(false,withCosting))};try{localStorage.setItem(XP_KEY,JSON.stringify(EXPORTED));}catch(e){}renderChg();}
+function markExported(withCosting){EXPORTED={hash:exportHash(withCosting),at:new Date().toISOString(),items:exportItems(buildExport(false,withCosting))};try{localStorage.setItem(XP_KEY,JSON.stringify(EXPORTED));}catch(e){}saveEdits();renderChg();}
+
+/* ═══════════ the saved changes in the repo (edits.json) ═══════════
+   The saved changes and the "sent to the PM" record are kept in edits.json in the WOPeditor repo, so they
+   are not lost with a browser and are the same on every PC (Luke, 21 Oct 2026). A PC with the token (a
+   fine-grained token that can write this repo's contents and nothing else) writes the file on every save,
+   a second or so after the last change, reading the file's sha first and reading again when GitHub refuses
+   a stale one; GitHub answering 5xx is tried again after a pause. On open, the file is read (through the
+   API with a token, else the GitHub Pages copy) and the newer of it and the browser copy is taken, by the
+   savedAt stamp each save writes; a browser copy from before this feature, with no stamp, is merged into
+   the file style by style, the later edit winning. Without a token the editor works as before, in the
+   browser only, and the pill in the header says so.                                                       */
+var CLOUD={status:'local',at:'',err:'',sha:null,loadedAt:'',localHash:'',pushedHash:'',timer:null,busy:false,dirty:false};
+function cloudToken(){try{return localStorage.getItem(WOE_TOKEN_KEY)||'';}catch(e){return '';}}
+function cloudSetup(){
+  var cur=cloudToken();
+  var t=prompt((cur?'This PC keeps the saved changes in edits.json in the '+WOE_REPO+' repo. Paste a new token to replace it, or clear the box to go back to this browser only.':'Paste the GitHub token for keeping the saved changes in the repo (a fine-grained token: Repository access only '+WOE_REPO+', Contents: read and write). Until then the changes stay in this browser.'), cur?'(kept)':'');
+  if(t===null)return; t=t.trim();
+  try{if(!t)localStorage.removeItem(WOE_TOKEN_KEY);else if(t!=='(kept)')localStorage.setItem(WOE_TOKEN_KEY,t);}catch(e){alert('Could not keep the token in this browser.');}
+  if(cloudToken()){CLOUD.pushedHash='';cloudLoad(function(){renderAll();cloudQueue();});}else{CLOUD.status='local';renderCloud();}
+}
+function cloudB64Enc(x){return btoa(unescape(encodeURIComponent(x)));}
+function cloudB64Dec(b){return decodeURIComponent(escape(atob((b||'').replace(/\s/g,''))));}
+function cloudParse(txt){var d=null;try{d=JSON.parse(txt);}catch(e){d=null;}if(!d||typeof d!=='object'||!d.styles)return null;d.charts=d.charts||{};d.chartCols=d.chartCols||{};return d;}
+function cloudPayload(){return JSON.stringify({source:'works-order-editor',savedAt:EDITS.savedAt||new Date().toISOString(),styles:EDITS.styles,charts:EDITS.charts,chartCols:EDITS.chartCols,exported:EXPORTED},null,1);}
+function cloudTime(iso){return iso?new Date(iso).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}):'';}
+function renderCloud(){
+  var p=$('cloudPill'),t=$('cloudTxt');if(!p||!t)return;
+  var st=CLOUD.status,cls='src clk ',txt='',tip='';
+  if(st==='local'){cls+='snap';txt='Saved in this browser';tip=cloudToken()?'The repo copy could not be read yet.':'The saved changes are in this browser only. Click to set this PC up with a token so they are kept in edits.json in the repo.';}
+  else if(st==='loading'){cls+='busy';txt='Reading saved changes…';tip='Reading edits.json from the repo.';}
+  else if(st==='saving'){cls+='busy';txt='Saving to GitHub…';tip='Writing edits.json to the repo.';}
+  else if(st==='error'){cls+='err';txt='NOT SAVED to GitHub';tip='edits.json could not be written: '+CLOUD.err+'. The changes are still in this browser; they go when the next save succeeds. Click to check the token.';}
+  else if(st==='behind'){cls+='err';txt='Another PC saved later';tip='edits.json was saved by another PC after this page was opened. Reload this page before saving again.';}
+  else{cls+='live';txt='Saved in the repo'+(CLOUD.at?' · '+cloudTime(CLOUD.at):'');tip='The saved changes are kept in edits.json in the '+WOE_REPO+' repo'+(cloudToken()?', written from this PC on every save.':' (read only on this PC: set it up with a token to write).')+' Click to change the token.';}
+  p.className=cls;t.textContent=txt;p.title=tip;
+}
+/* Read edits.json and settle which copy to keep, then cb(). */
+function cloudLoad(cb){
+  var tok=cloudToken();
+  if(!/^https?:/.test(location.protocol)&&!tok){CLOUD.status='local';renderCloud();if(cb)cb();return;}
+  CLOUD.status='loading';renderCloud();
+  var done=function(d,sha){
+    if(d){cloudAdopt(d);CLOUD.sha=sha||null;CLOUD.loadedAt=d.savedAt||'';CLOUD.status='ok';CLOUD.at=d.savedAt||'';}
+    else{CLOUD.sha=null;CLOUD.loadedAt='';CLOUD.status=tok?'ok':'local';CLOUD.at='';}
+    if(d&&!CLOUD.dirty){CLOUD.pushedHash=editsHash();}
+    renderCloud();if(cb)cb();
+  };
+  var fail=function(msg){CLOUD.status='local';CLOUD.err=msg;renderCloud();if(cb)cb();};
+  if(tok){
+    fetch(WOE_API+'?t='+Date.now(),{headers:{'Authorization':'Bearer '+tok,'Accept':'application/vnd.github+json'},cache:'no-store'})
+      .then(function(r){if(r.status===404)return {empty:true};if(!r.ok)throw new Error('GitHub said '+r.status+(r.status===401?' (token refused)':''));return r.json();})
+      .then(function(j){if(j.empty){done(null,null);return;}done(cloudParse(cloudB64Dec(j.content)),j.sha);})
+      .catch(function(e){fail(String(e.message||e));});
+  }else{
+    fetch(WOE_PAGES+'?t='+Date.now(),{cache:'no-store'})
+      .then(function(r){if(r.status===404)return null;if(!r.ok)throw new Error('could not read edits.json ('+r.status+')');return r.text();})
+      .then(function(t){done(t==null?null:cloudParse(t),null);})
+      .catch(function(e){fail(String(e.message||e));});
+  }
+}
+/* The file against the browser copy: the newer whole copy wins. A browser copy with no stamp (saved
+   before this existed) is merged style by style, the later editedAt winning, and then written back. */
+function cloudAdopt(d){
+  var mine=EDITS.savedAt||'';
+  var take=function(){EDITS={styles:{},charts:d.charts||{},chartCols:d.chartCols||{},savedAt:d.savedAt||''};
+    Object.keys(d.styles||{}).forEach(function(c){EDITS.styles[String(c).toUpperCase()]=unify(d.styles[c],{});});
+    if(d.exported&&d.exported.at){EXPORTED=d.exported;try{localStorage.setItem(XP_KEY,JSON.stringify(EXPORTED));}catch(e){}}
+    CLOUD.localHash=editsHash();CLOUD.dirty=false;try{localStorage.setItem(LS_KEY,JSON.stringify(EDITS));}catch(e){}};
+  if(!mine){
+    var had=Object.keys(EDITS.styles).length||Object.keys(EDITS.charts).length||Object.keys(EDITS.chartCols).length;
+    if(!had){take();return;}
+    var ours=EDITS;take();
+    Object.keys(ours.styles).forEach(function(c){var o=ours.styles[c],f=EDITS.styles[c];if(!f||String(o.editedAt||'')>String(f.editedAt||''))EDITS.styles[c]=o;});
+    Object.keys(ours.charts).forEach(function(k){if(!(k in EDITS.charts))EDITS.charts[k]=ours.charts[k];});
+    Object.keys(ours.chartCols).forEach(function(k){if(!(k in EDITS.chartCols))EDITS.chartCols[k]=ours.chartCols[k];});
+    EDITS.savedAt=new Date().toISOString();CLOUD.localHash=editsHash();CLOUD.dirty=true;try{localStorage.setItem(LS_KEY,JSON.stringify(EDITS));}catch(e){}
+    return;
+  }
+  if(String(d.savedAt||'')>mine)take();
+  else if(String(d.savedAt||'')<mine)CLOUD.dirty=true;   /* this browser is ahead (saved while the token was missing): write it */
+}
+/* Write a second or so after the last save; one write at a time; a save during a write goes after it. */
+function cloudQueue(){
+  if(!cloudToken()){CLOUD.status='local';renderCloud();return;}
+  if(editsHash()===CLOUD.pushedHash){CLOUD.dirty=false;return;}
+  CLOUD.dirty=true;if(CLOUD.timer)clearTimeout(CLOUD.timer);
+  CLOUD.timer=setTimeout(function(){CLOUD.timer=null;cloudPush();},1500);
+}
+var CLOUD_RETRIES=4,CLOUD_RETRY_MS=1500;
+function cloudPush(attempt){
+  var tok=cloudToken();if(!tok||CLOUD.busy)return;
+  attempt=attempt||1;CLOUD.busy=true;CLOUD.status='saving';renderCloud();
+  var hdr={'Authorization':'Bearer '+tok,'Accept':'application/vnd.github+json'};
+  var again=function(){CLOUD.busy=false;setTimeout(function(){cloudPush(attempt+1);},attempt*CLOUD_RETRY_MS);};
+  var fail=function(msg){CLOUD.busy=false;CLOUD.status='error';CLOUD.err=msg;renderCloud();};
+  fetch(WOE_API+'?t='+Date.now(),{headers:hdr,cache:'no-store'})
+    .then(function(r){if(r.status===404)return {empty:true};if(r.status>=500&&attempt<CLOUD_RETRIES){again();return null;}if(!r.ok)throw new Error('GitHub said '+r.status+(r.status===401?' (token refused)':r.status===403?' (token cannot write this repo)':''));return r.json();})
+    .then(function(j){
+      if(!j)return null;
+      var sha=j.empty?null:j.sha;
+      if(!j.empty){var d=cloudParse(cloudB64Dec(j.content));
+        /* saved from another PC since this page read the file: keep theirs, do not write over it */
+        if(d&&d.savedAt&&CLOUD.loadedAt&&String(d.savedAt)>String(CLOUD.loadedAt)&&String(d.savedAt)!==String(EDITS.savedAt||'')){CLOUD.busy=false;CLOUD.status='behind';renderCloud();return null;}}
+      var payload=cloudPayload(),h=editsHash();
+      var body={message:'Works order editor saved '+new Date().toISOString().slice(0,16).replace('T',' '),content:cloudB64Enc(payload)};if(sha)body.sha=sha;
+      return fetch(WOE_API,{method:'PUT',headers:Object.assign({'Content-Type':'application/json'},hdr),body:JSON.stringify(body)}).then(function(r){
+        if((r.status===409||r.status===422||r.status>=500)&&attempt<CLOUD_RETRIES){again();return null;}
+        if(!r.ok)throw new Error('GitHub refused the save ('+r.status+')');
+        return r.json().then(function(res){CLOUD.sha=(res&&res.content&&res.content.sha)||null;CLOUD.loadedAt=EDITS.savedAt||'';CLOUD.at=EDITS.savedAt||new Date().toISOString();CLOUD.pushedHash=h;CLOUD.busy=false;CLOUD.err='';
+          if(editsHash()!==h){CLOUD.status='ok';cloudQueue();}else{CLOUD.dirty=false;CLOUD.status='ok';renderCloud();}});
+      });
+    })
+    .catch(function(e){fail(String(e.message||e));});
+}
 
 /* ═══════════ editor ═══════════ */
 function fld(lab,key,val,type,ph){return '<div><span class="pclab">'+esc(lab)+'</span><input '+(type==='number'?'type="number" step="any"':'type="text"')+' data-f="'+key+'" value="'+esc(val==null?'':val)+'"'+(ph?' placeholder="'+esc(ph)+'"':'')+'></div>';}
@@ -1159,7 +1285,7 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')closeModal()
 /* ═══════════ start ═══════════ */
 $('q').addEventListener('input',function(e){q=e.target.value;renderList();});
 $('fShow').addEventListener('change',function(){renderChips();renderList();});
-(function(){ if(TIBARD_LOGO){$('hdrLogo').src=TIBARD_LOGO;}else{$('hdrLogo').style.display='none';} loadEdits(); loadDraftStore(); loadExported(); libLoadStore(); liveLoad(); libLoad(); costingLoad(); })();
+(function(){ if(TIBARD_LOGO){$('hdrLogo').src=TIBARD_LOGO;}else{$('hdrLogo').style.display='none';} loadEdits(); loadDraftStore(); loadExported(); libLoadStore(); CLOUD.localHash=editsHash(); cloudLoad(function(){ liveLoad(); cloudQueue(); }); libLoad(); costingLoad(); })();
 document.addEventListener('keydown',function(e){if((e.ctrlKey||e.metaKey)&&String(e.key).toLowerCase()==='s'&&tab==='styles'&&cur){e.preventDefault();saveStay();}});
 </script>
 </body>
