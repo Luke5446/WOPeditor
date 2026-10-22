@@ -1,0 +1,171 @@
+{
+ "source": "works-order-editor",
+ "savedAt": "2026-10-22T13:21:49.582Z",
+ "styles": {
+  "OHCJ0001M": {
+   "code": "OHCJ0001M",
+   "name": "Chef jacket — Grange & Co",
+   "desc": "Waiters jacket with button fastened front and centre back vent.  Collar and collar stand.  Long sleeve with button fastened vents.   Lower patch pockets and chest pocket left side as worn.",
+   "lectra": "OHCJ3098",
+   "variant": "SR1355",
+   "chart": "OHCJ0001M-MEAS",
+   "fabrics": [
+    [
+     "WHITE 100% SUSTAINABLE COTTON (X149 - AM 5)",
+     "CO5001ECO",
+     "A3",
+     1.6,
+     2.58
+    ],
+    [
+     "WHITE SEMI INTERLINING QUALITY 6616",
+     "FUS1256",
+     "D7",
+     0.07,
+     2.78
+    ]
+   ],
+   "trims": [
+    [
+     "THREAD",
+     "THREAD — WHITE PERMA CORE 75 20000 M CONE 32109W (Somac) — cost per metre",
+     "220",
+     "CMP-THR-PC075-32109-01",
+     0.0005055
+    ],
+    [
+     "OH care label",
+     "OLIVER HARVEY WASH CARE LABEL - 100% ORGANIC COTTON",
+     "1",
+     "CMP-OH-LBL-WASH-01",
+     0.032
+    ],
+    [
+     "OH woven label",
+     "Oliver Harvey 'Button' Woven Centrefold Label (32x80mm)",
+     "1",
+     "LABELOH5771",
+     0.04335
+    ],
+    [
+     "",
+     "CREAM 36L 4 HOLE ROUND HORN LOOK BUTTON",
+     "7",
+     "CMP-BTN-P151-36-66",
+     0.19
+    ],
+    [
+     "Packaging — tissue wrap",
+     "OH GREASEPROOF TISSUE 500x750 — 1 sheet per OH product",
+     "1",
+     "PKG-OH-GPS-500X750-01",
+     0.07544
+    ],
+    [
+     "Packaging — masking tape",
+     "WHITE MASKING TAPE (25mmx50mm) — cost per metre (£0.645/50m roll), typical qty 0.9m",
+     "0.016",
+     "PKG-TAPE-MSK-25x50-01",
+     0.0129
+    ],
+    [
+     "Additional label",
+     "WHITE 25MM NYLON LABEL TAPE FOR TIBARD-PRINTED LABELS — cost per metre",
+     "0.03",
+     "CMP-LBL-NYL-25-01",
+     0.039067
+    ],
+    [
+     "",
+     "CREAM 24L 4 HOLE ROUND HORN LOOK BUTTON",
+     "5",
+     "CMP-BTN-P151-24-66",
+     0.095
+    ],
+    [
+     "POS swing tag",
+     "Oliver Harvey Kraft Swing Tag 50x75mm",
+     1,
+     "OHSWINGTAG",
+     0.0646
+    ]
+   ],
+   "mfg": [
+    "Fuse collar, collar stand and front facing.",
+    "Make back neck loop.  Fold in edges to neaten and edgestitch both long edges.",
+    "Narrow double turn (5mm) to neaten centre back vent.",
+    "Narrow double turn(5mm) to neaten sleeve vent on under sleeve.",
+    "Make collar - Join collar to collar stand and edgestitch seam down. Make top and lower collar.",
+    "Set front facing to front. Fold in 1cm to finish width 5cm and stitch down.",
+    "Narrow double turn(5mm) to neaten back buggy lower edge.",
+    "5 thread join centre back seam and back sleeve seam",
+    "Straighten seam at top of centre back vent.",
+    "6mm topstitch centre back seam and set centre back vent.  Fold in 1cm to neaten inside edge of back vent. Angle stitch centre back vent and stitch down vent to hem.",
+    "Set back buggy to centre back neck and OH label.",
+    "5 thread join back to front at shoulders and at side seam. Insert care label 8cm up from right side seam as worn.",
+    "6mm topstitch shoulder seam onto back",
+    "Set collar to neck. Edgestitch collar leaf edge and collar down at neck edge. Insert OH label to centre back neck.",
+    "Straighten seam at top of sleeve vent.",
+    "6mm topstitch top sleeve seam to top of sleeve vent.  Fold in 1cm of top sleeve vent inside eges. Stitch angled stitch line, then stitch down vent to hem. Stitch width at vent to be 4cm wide.",
+    "Turn under 1cm all round elbow patch.  Set elbow patch to sleeve. Set at 22cm up from cut hem edge and centrally to sleeve seam.",
+    "5 thread join up under sleeve and set sleeve to jacket.",
+    "Set sleeve hem.  Double turn 1+ 3cm and topstitch at 3cm",
+    "Set body hem - 1 + 3cm and topstitch at 3cm",
+    "Make chest pocket.  Set pocket facing. Fold back facing, turn under lower edge by 1cm and stitch down to width of facing. Snip into corner 1cm to allow for 1cm turn up of facing.",
+    "Set pocket hem to slant lower pockets.  Double turn and topstitch 1cm.",
+    "Set lower pocket to front.  Set 1.5cm up from hem stitching and 1.5cm in from front topstitching. Edgestitch in position. Ensure parallel to front topstitching.",
+    "Set chest pocket to left front as worn. Set 1.5cm in from front topstitching and top of pocket 15cm down from front edge. Edgestitch in position. Ensure parallel to front topstitching.",
+    "Set chest pocket stitch lines in position at end of straight top edge and 3cm from side of pocket.",
+    "Set back neck loop to back of jacket,  Set 2.5cm down from finished neck seam and centrally to back neck seam.  Set two rows of stitching to secure."
+   ],
+   "fin": [
+    "Set bartacks to pocket openings.   1 x horizontal and 1 x vertical on lower pocket.  4 x vertical on chest pocket.  1 each side of opening and 1 at top of each stitch lines.",
+    "Mark and set horizontal buttonholes on front x 6    - Blade 1\" -36L buttons. Use marker. Set buttons to centre of placket.",
+    "Mark and set horizontal buttonholes on sleeve vent x 2    Blade 3/4\"-  24L buttons - Set centre of buttonhole 2cm in from end of sleeve vent and centrally within width of hem stitching. Mark button from buttonhole aligning vent and set second button 2.5cm from the centre of the first button - toward back of sleeve. ally within the width of hem stitching,",
+    "Set spare button 1 each size onto care label",
+    "Check, trim, press and fold.",
+    "Set into tissue and set product label."
+   ],
+   "machMins": 50,
+   "finMins": 8,
+   "cutBatch": 25,
+   "cutMins": 15,
+   "oneSize": true,
+   "markerMain": "OHCJ000103",
+   "markerMesh": "",
+   "markerLen": 1.55,
+   "layQty": 1,
+   "hasMesh": false,
+   "meshLen": null,
+   "meshLay": null,
+   "hasCon": true,
+   "conFab": "FUS1256",
+   "markerCon": "OHCJ000152",
+   "conLen": 1.18,
+   "conLay": 5,
+   "sr": "",
+   "srVersion": 1,
+   "customer": "Grange & Co",
+   "brandType": "None",
+   "brandPlace": "",
+   "logoImg": "",
+   "logo2Img": "",
+   "placeImg": "",
+   "alias": [],
+   "tol": "",
+   "editedAt": "2026-10-22",
+   "importedAt": "2026-10-21"
+  }
+ },
+ "charts": {},
+ "chartCols": {},
+ "exported": {
+  "hash": "-265321381",
+  "at": "2026-10-22T13:21:49.581Z",
+  "items": {
+   "OHCJ0001M": "-227390110",
+   "CJ0001L": "-581432176",
+   "chart:CJ0001L-MEAS": "-1242262846"
+  }
+ }
+}
