@@ -35,9 +35,30 @@ browser or another PC reads the file and carries on.
   changes stay in the browser and go with the next save that succeeds.
 
 The file holds `styles`, `charts`, `chartCols` (the editor's changes on top
-of what the Production Plan app holds), `exported` (what was last downloaded
-for the PM) and `savedAt`. A change the PM has imported and published drops
-out of it, as it drops out of the browser copy.
+of what the Production Plan app holds), `history` (the change history, see
+below), `exported` (what was last downloaded for the PM) and `savedAt`. A
+change the PM has imported and published drops out of it, as it drops out of
+the browser copy; its history entries stay.
+
+## Change history (28 Oct 2026)
+
+Every save of a style asks **why it is changing** and refuses to save until a
+reason is typed (Save & close, Ctrl+S, Save on the unsaved-changes prompt,
+the save before a print, Revert to buffer app copy, and the bulk edit tab,
+which takes one reason for the whole batch). The entry records the date and
+time, the name or initials typed (remembered on the PC under localStorage
+`tibard_woe_by`), which parts changed (details, cutting room, fabrics, trims,
+manufacturing, finishing, times, size chart, branding, new style) and the
+reason. A save that changes nothing asks nothing.
+
+- Shown at the top of the style as **Change history**, newest first.
+- Kept per style in `edits.json` under `history[code]` (oldest first), with
+  the browser copy as a cache. An older file or browser copy without the key
+  simply starts empty.
+- Goes out with the style on **Export for PM** as `history` on each style,
+  so the Production Plan app's `styleEdits` and `data.json` carry it; the
+  editor reads it back from there and merges it with its own entries, so the
+  history survives the change being published and settled.
 
 ## Tests
 
@@ -46,4 +67,5 @@ Run against the real `index.html` in Chromium: `npm i playwright` then
 
 | File | Covers |
 |---|---|
+| `tests/test-history.js` | The change history: a save refused without a reason; the entry (when, who, what, why) recorded with one; kept in the browser copy, the `edits.json` payload and the export; shown on the style; an entry back from data.json merged in; a save that changes nothing asks nothing; the history surviving a reload; a bulk edit needing a reason |
 | `tests/test-cloud.js` | The saved changes in `edits.json` against a stand-in GitHub API: browser-only without a token; the browser copy written on the first run with one; a save writing once; a fresh browser reading the file; the newer copy winning either way; a stale sha read again; another PC's later save not written over |
