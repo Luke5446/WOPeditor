@@ -236,6 +236,8 @@ var LIB_KEY='tibard_woe_lists_v1';
 /* 21 Oct 2026: the saved changes live in edits.json in this repo, written through the GitHub API with a
    token kept on the PC (Set up this PC), as the buffer app publishes data.json. The browser copy is a cache. */
 var WOE_REPO='Luke5446/WOPeditor', WOE_FILE='edits.json', WOE_TOKEN_KEY='tibard_woe_token';
+/* 28 Oct 2026: every save of a style asks for a reason (the GT asked for it) and keeps a change history per
+   style: EDITS.history[code] in edits.json, shown on the style, exported with it so data.json carries it. */
 var WOE_API='https://api.github.com/repos/'+WOE_REPO+'/contents/'+WOE_FILE, WOE_PAGES='https://luke5446.github.io/WOPeditor/'+WOE_FILE;
 </script>
 <script>
@@ -245,7 +247,7 @@ var WOE_API='https://api.github.com/repos/'+WOE_REPO+'/contents/'+WOE_FILE, WOE_
    EDITS = this editor's changes on top of BASE. Only what differs is kept, and only
            what differs is exported. Saved in this browser until exported.            */
 var BASE={styles:{},order:[],charts:{},chartCols:{},trimCosts:{},markers:{},team:{},costing:{}};
-var EDITS={styles:{},charts:{},chartCols:{}};
+var EDITS={styles:{},charts:{},chartCols:{},history:{}};
 var META={source:'snap',stamp:'',teamN:0,costSrc:'',costStamp:''};
 var COSTPUB=null;   /* the costing app's published-data.json: quotes, SRs and converted products */
 /* DRAFT = the style open in the editor, with any chart it touched. Nothing reaches EDITS (the saved
@@ -385,7 +387,7 @@ function loadText(name,txt){
     modal('Team edits applied',name,'<p class="pcnote">'+n+' style'+(n===1?'':'s')+' from data.json now sit on top of the baked-in master, exactly as the buffer app sees them.</p>');return;
   }
   if(data&&data.source==='works-order-editor'){ /* resume earlier export */
-    var m=0;(data.styles||[]).forEach(function(st){var c=String(st.code).toUpperCase();var s=unify(st,{});delete s.editedAt;EDITS.styles[c]=s;if(!BASE.styles[c]&&BASE.order.indexOf(c)<0)BASE.order.push(c);m++;});
+    var m=0;(data.styles||[]).forEach(function(st){var c=String(st.code).toUpperCase();var s=unify(st,{});delete s.editedAt;absorbHistory(c,s.history);delete s.history;EDITS.styles[c]=s;if(!BASE.styles[c]&&BASE.order.indexOf(c)<0)BASE.order.push(c);m++;});
     Object.keys(data.charts||{}).forEach(function(k){EDITS.charts[k]=data.charts[k];});Object.keys(data.chartCols||{}).forEach(function(k){EDITS.chartCols[k]=data.chartCols[k];});
     saveEdits();renderAll();modal('Export file re-opened',name,'<p class="pcnote">'+m+' style'+(m===1?'':'s')+' loaded back as changes you can keep editing.</p>');return;
   }
@@ -478,7 +480,7 @@ function newestPublish(list){
 function costingOnly(){return BASE.order.filter(function(c){return BASE.costing[c]&&!BASE.team[c];});}
 
 /* ═══════════ edits ═══════════ */
-function strip(s){var o=clone(s);delete o.editedAt;delete o.importedAt;return o;}  /* stamps only: editedAt is ours, importedAt is the buffer app's */
+function strip(s){var o=clone(s);delete o.editedAt;delete o.importedAt;delete o.history;return o;}  /* stamps only: editedAt is ours, importedAt is the buffer app's; history is the change log */
 function isThreadRow(r){return /thread/i.test(String(r[0]||''))||/^CMP-THR/i.test(String(r[3]||''));}
 /* Does the saved change match what the buffer app now holds? The buffer app re-stamps a style on import
    (importedAt) and sets the thread row to its standard metres (threadApplyStd), so a change that came back
@@ -488,8 +490,8 @@ function landed(c){var e=EDITS.styles[c],b=BASE.styles[c];if(!e||!b)return false
   if(BASE.team[c]&&Array.isArray(a.trims)&&Array.isArray(z.trims)&&a.trims.length===z.trims.length)
     a.trims.forEach(function(r,i){var t=z.trims[i];if(isThreadRow(r)&&isThreadRow(t)&&String(r[3]||'').toUpperCase()===String(t[3]||'').toUpperCase())r[2]=t[2];});
   return JSON.stringify(a)===JSON.stringify(z);}
-function loadEdits(){try{var d=JSON.parse(localStorage.getItem(LS_KEY)||'null');if(d&&d.styles){EDITS=d;EDITS.charts=EDITS.charts||{};EDITS.chartCols=EDITS.chartCols||{};Object.keys(EDITS.styles).forEach(function(c){EDITS.styles[c]=unify(EDITS.styles[c],{});});}}catch(e){}}
-function editsHash(){return hashStr(JSON.stringify({s:EDITS.styles,c:EDITS.charts,k:EDITS.chartCols,x:EXPORTED}));}
+function loadEdits(){try{var d=JSON.parse(localStorage.getItem(LS_KEY)||'null');if(d&&d.styles){EDITS=d;EDITS.charts=EDITS.charts||{};EDITS.chartCols=EDITS.chartCols||{};EDITS.history=EDITS.history||{};Object.keys(EDITS.styles).forEach(function(c){EDITS.styles[c]=unify(EDITS.styles[c],{});});}}catch(e){}}
+function editsHash(){return hashStr(JSON.stringify({s:EDITS.styles,c:EDITS.charts,k:EDITS.chartCols,h:EDITS.history||{},x:EXPORTED}));}
 function saveEdits(){
   var h=editsHash(); if(h!==CLOUD.localHash){CLOUD.localHash=h;EDITS.savedAt=new Date().toISOString();}   /* a save that changed nothing keeps its stamp */
   try{localStorage.setItem(LS_KEY,JSON.stringify(EDITS));}catch(e){}
@@ -502,10 +504,10 @@ function isChanged(c){if(!EDITS.styles[c])return false;if(isNew(c))return true;r
 function edit(c){ /* the draft for c, started from the saved copy on first touch */
   if(DRAFT&&DRAFT.code===c)return DRAFT.style;
   var b=savedStyle(c);if(!b)return null;
-  DRAFT={code:c,style:clone(b),charts:{},chartCols:{}};return DRAFT.style;
+  DRAFT={code:c,style:clone(b),charts:{},chartCols:{}};delete DRAFT.style.history;return DRAFT.style;
 }
 function editSaved(c){ /* bulk edit writes straight to the saved changes: Apply is the save */
-  if(!EDITS.styles[c]){if(!BASE.styles[c])return null;EDITS.styles[c]=clone(BASE.styles[c]);}
+  if(!EDITS.styles[c]){if(!BASE.styles[c])return null;EDITS.styles[c]=clone(BASE.styles[c]);delete EDITS.styles[c].history;}
   return EDITS.styles[c];
 }
 function settleSaved(c){ /* drop a saved change that landed back on the base */
@@ -522,8 +524,9 @@ function isDirty(){ /* does the open draft differ from what is saved? */
 function dirtyHere(c){return !!(DRAFT&&DRAFT.code===c&&isDirty());}
 function saveDraftStore(){try{if(DRAFT)localStorage.setItem(DRAFT_KEY,JSON.stringify(DRAFT));else localStorage.removeItem(DRAFT_KEY);}catch(e){}}
 function loadDraftStore(){try{var d=JSON.parse(localStorage.getItem(DRAFT_KEY)||'null');if(d&&d.code&&d.style){DRAFT={code:String(d.code).toUpperCase(),style:unify(d.style,{}),charts:d.charts||{},chartCols:d.chartCols||{}};cur=DRAFT.code;}}catch(e){}}
-function saveDraft(){ /* commit the draft to the saved changes */
+function saveDraft(note,what){ /* commit the draft to the saved changes; note = the reason typed (see askReason) */
   if(!DRAFT)return false;var c=DRAFT.code;
+  if(note)logChange(c,what||changedNow(c),note,'editor');
   if(isNew(c)||JSON.stringify(strip(DRAFT.style))!==JSON.stringify(strip(BASE.styles[c]))){DRAFT.style.editedAt=today();EDITS.styles[c]=DRAFT.style;}else delete EDITS.styles[c];
   Object.keys(DRAFT.charts).forEach(function(k){if(JSON.stringify(DRAFT.charts[k])===JSON.stringify(BASE.charts[k]||null))delete EDITS.charts[k];else EDITS.charts[k]=DRAFT.charts[k];});
   Object.keys(DRAFT.chartCols).forEach(function(k){if(JSON.stringify(DRAFT.chartCols[k])===JSON.stringify(BASE.chartCols[k]||null))delete EDITS.chartCols[k];else EDITS.chartCols[k]=DRAFT.chartCols[k];});
@@ -533,16 +536,60 @@ function discardDraft(){ /* throw the draft away; a never-saved new style disapp
   if(!DRAFT)return;var c=DRAFT.code;DRAFT=null;saveDraftStore();
   if(isNew(c)&&!EDITS.styles[c]){var i=BASE.order.indexOf(c);if(i>=0)BASE.order.splice(i,1);if(cur===c)cur=null;}
 }
-function saveClose(){if(!cur)return;if(DRAFT&&DRAFT.code===cur)saveDraft();cur=null;renderAll();}
-function saveStay(){if(!cur||!DRAFT||DRAFT.code!==cur)return;saveDraft();renderAll();}
+function saveClose(){if(!cur)return;if(DRAFT&&DRAFT.code===cur){saveWithReason(function(){cur=null;renderAll();});return;}cur=null;renderAll();}
+function saveStay(then){if(!cur||!DRAFT||DRAFT.code!==cur){if(then)then();return;}saveWithReason(function(){renderAll();if(then)then();});}
 function closeNoSave(){if(!cur)return;if(dirtyHere(cur)&&!confirm('Close '+cur+' and throw away the unsaved changes?'))return;discardDraft();cur=null;renderAll();}
 function guardLeave(then){ /* leaving the open style: nothing to ask unless it has unsaved changes */
   if(!DRAFT||!isDirty()){if(DRAFT){DRAFT=null;saveDraftStore();}then();renderChg();return;}
   var c=DRAFT.code;
   modal('Unsaved changes',c,'<p class="pcnote"><strong>'+esc(c)+'</strong> has changes that have not been saved. Save them, or throw them away? (Close keeps editing.)</p>',
-    [{l:'Throw away',c:'btn-red',f:function(){discardDraft();closeModal();then();renderChg();renderChips();}},{l:'Save',c:'btn-gold',f:function(){saveDraft();closeModal();then();renderChg();renderChips();}}]);
+    [{l:'Throw away',c:'btn-red',f:function(){discardDraft();closeModal();then();renderChg();renderChips();}},{l:'Save',c:'btn-gold',f:function(){closeModal();saveWithReason(function(){then();renderChg();renderChips();});}}]);
 }
 function changedCodes(){return Object.keys(EDITS.styles).filter(isChanged);}
+
+/* ═══════════ change history (28 Oct 2026) ═══════════
+   Every save of a style needs a reason, so the team can look back at what changed and why.
+   EDITS.history[code] = [{at, by, what:[sections changed], note, via:'editor'|'bulk'|'revert'}], oldest first.
+   It lives in edits.json (and the browser copy), goes out with the style on Export for PM, lands in the
+   buffer app's styleEdits and so data.json, and is read back from there (historyFor merges both). */
+var BY_KEY='tibard_woe_by';
+function whoEdits(){try{return localStorage.getItem(BY_KEY)||'';}catch(e){return '';}}
+function changedNow(c){ /* what the open draft would change: sections of the style, plus its size chart */
+  if(!DRAFT||DRAFT.code!==c)return [];var out=sections(c,DRAFT.style,savedStyle(c)||null);
+  var k,ch=false;for(k in DRAFT.charts)if(JSON.stringify(DRAFT.charts[k])!==JSON.stringify(savedChartRows(k)))ch=true;
+  for(k in DRAFT.chartCols)if(JSON.stringify(DRAFT.chartCols[k])!==JSON.stringify(savedChartCols(k)))ch=true;
+  if(ch&&out.indexOf('size chart')<0)out.push('size chart');return out;}
+function logChange(c,what,note,via){
+  EDITS.history=EDITS.history||{};var l=EDITS.history[c]=EDITS.history[c]||[];
+  l.push({at:new Date().toISOString(),by:whoEdits(),what:what||[],note:String(note||'').trim(),via:via||'editor'});
+  if(l.length>300)l.splice(0,l.length-300);}
+function absorbHistory(c,list){ /* entries that came back in a file: keep the ones we do not have */
+  if(!Array.isArray(list)||!list.length)return;EDITS.history=EDITS.history||{};var l=EDITS.history[c]=EDITS.history[c]||[];
+  var seen={};l.forEach(function(e){seen[e.at+'|'+(e.note||'')]=true;});
+  list.forEach(function(e){if(e&&e.at&&!seen[e.at+'|'+(e.note||'')]){seen[e.at+'|'+(e.note||'')]=true;l.push(e);}});
+  l.sort(function(x,y){return x.at<y.at?-1:x.at>y.at?1:0;});}
+function historyFor(c){ /* this editor's entries and those published back through data.json, oldest first */
+  var seen={},out=[];var add=function(e){if(!e||!e.at||seen[e.at+'|'+(e.note||'')])return;seen[e.at+'|'+(e.note||'')]=true;out.push(e);};
+  ((EDITS.history||{})[c]||[]).forEach(add);var b=BASE.styles[c];if(b&&Array.isArray(b.history))b.history.forEach(add);
+  return out.sort(function(x,y){return x.at<y.at?-1:x.at>y.at?1:0;});}
+function fmtDT(iso){return iso?new Date(iso).toLocaleString('en-GB',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'';}
+function historyHTML(c){
+  var hs=historyFor(c).slice().reverse();
+  var rows=hs.map(function(e){return '<tr><td class="mono" style="white-space:nowrap">'+esc(fmtDT(e.at))+'</td><td>'+esc(e.by||'')+'</td><td>'+esc((e.what||[]).join(', '))+'</td><td>'+esc(e.note||'')+(e.via==='bulk'?' <span class="tag alt">bulk edit</span>':e.via==='revert'?' <span class="tag draft">revert</span>':'')+'</td></tr>';}).join('');
+  return '<div class="pcsec" id="hist"><h4>Change history <span class="r">'+(hs.length?hs.length+' change'+(hs.length===1?'':'s')+' · newest first':'every save asks for a reason and lists it here')+'</span></h4><div class="in tw">'
+    +(hs.length?'<table class="pctbl view"><tr><th>When</th><th>Who</th><th>What changed</th><th>Why</th></tr>'+rows+'</table>':'<p class="pcnote" style="margin:0">No changes recorded yet. Since 28 Oct 2026 every save of a style asks what changed and why; the answers are kept here and travel with the style to the buffer app.</p>')+'</div></div>';}
+function askReason(c,what,then){ /* the mandatory reason: nothing is saved until one is typed */
+  var body='<p class="pcnote" style="margin:0 0 8px">Changing: <strong>'+esc(what.join(', ')||'nothing')+'</strong>. Say what was changed and why, so the team can look back at it later. It is kept with the style.</p>'
+    +'<div class="pcrow"><div><span class="pclab">Reason for the change (required)</span><textarea id="rsNote" rows="3" placeholder="e.g. marker length corrected from 11.55 m to 1.55 m — mistyped"></textarea></div></div>'
+    +'<div class="pcrow" style="grid-template-columns:1fr 2fr;margin-top:8px"><div><span class="pclab">Your name or initials</span><input id="rsBy" value="'+esc(whoEdits())+'" placeholder="remembered on this PC"></div></div>'
+    +'<p class="pcwarn" id="rsWarn" style="display:none">A reason is needed before the change can be saved.</p>';
+  modal('Why is '+c+' changing?',c,body,[{l:'Save with this reason',c:'btn-gold',f:function(){var n=$('rsNote').value.trim();if(!n){$('rsWarn').style.display='';$('rsNote').focus();return;}
+    try{localStorage.setItem(BY_KEY,$('rsBy').value.trim());}catch(e){}closeModal();then(n);}}]);
+  setTimeout(function(){var t=$('rsNote');if(t)t.focus();},0);}
+function saveWithReason(then){ /* save the open draft: a reason first if it changes anything, then then() */
+  if(!DRAFT){then();return;}var c=DRAFT.code;
+  if(!isDirty()){saveDraft();then();return;}
+  var what=changedNow(c);askReason(c,what,function(note){saveDraft(note,what);then();});}
 function savedChartRows(k){return EDITS.charts[k]||BASE.charts[k]||[];}
 function savedChartCols(k){return EDITS.chartCols[k]||BASE.chartCols[k]||null;}
 function chartRows(k){return (DRAFT&&(k in DRAFT.charts))?DRAFT.charts[k]:savedChartRows(k);}
@@ -665,7 +712,7 @@ function cloudSetup(){
 function cloudB64Enc(x){return btoa(unescape(encodeURIComponent(x)));}
 function cloudB64Dec(b){return decodeURIComponent(escape(atob((b||'').replace(/\s/g,''))));}
 function cloudParse(txt){var d=null;try{d=JSON.parse(txt);}catch(e){d=null;}if(!d||typeof d!=='object'||!d.styles)return null;d.charts=d.charts||{};d.chartCols=d.chartCols||{};return d;}
-function cloudPayload(){return JSON.stringify({source:'works-order-editor',savedAt:EDITS.savedAt||new Date().toISOString(),styles:EDITS.styles,charts:EDITS.charts,chartCols:EDITS.chartCols,exported:EXPORTED},null,1);}
+function cloudPayload(){return JSON.stringify({source:'works-order-editor',savedAt:EDITS.savedAt||new Date().toISOString(),styles:EDITS.styles,charts:EDITS.charts,chartCols:EDITS.chartCols,history:EDITS.history||{},exported:EXPORTED},null,1);}
 function cloudTime(iso){return iso?new Date(iso).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}):'';}
 function renderCloud(){
   var p=$('cloudPill'),t=$('cloudTxt');if(!p||!t)return;
@@ -706,7 +753,7 @@ function cloudLoad(cb){
    before this existed) is merged style by style, the later editedAt winning, and then written back. */
 function cloudAdopt(d){
   var mine=EDITS.savedAt||'';
-  var take=function(){EDITS={styles:{},charts:d.charts||{},chartCols:d.chartCols||{},savedAt:d.savedAt||''};
+  var take=function(){EDITS={styles:{},charts:d.charts||{},chartCols:d.chartCols||{},history:d.history||{},savedAt:d.savedAt||''};
     Object.keys(d.styles||{}).forEach(function(c){EDITS.styles[String(c).toUpperCase()]=unify(d.styles[c],{});});
     if(d.exported&&d.exported.at){EXPORTED=d.exported;try{localStorage.setItem(XP_KEY,JSON.stringify(EXPORTED));}catch(e){}}
     CLOUD.localHash=editsHash();CLOUD.dirty=false;try{localStorage.setItem(LS_KEY,JSON.stringify(EDITS));}catch(e){}};
@@ -717,6 +764,7 @@ function cloudAdopt(d){
     Object.keys(ours.styles).forEach(function(c){var o=ours.styles[c],f=EDITS.styles[c];if(!f||String(o.editedAt||'')>String(f.editedAt||''))EDITS.styles[c]=o;});
     Object.keys(ours.charts).forEach(function(k){if(!(k in EDITS.charts))EDITS.charts[k]=ours.charts[k];});
     Object.keys(ours.chartCols).forEach(function(k){if(!(k in EDITS.chartCols))EDITS.chartCols[k]=ours.chartCols[k];});
+    Object.keys(ours.history||{}).forEach(function(c){absorbHistory(c,ours.history[c]);});
     EDITS.savedAt=new Date().toISOString();CLOUD.localHash=editsHash();CLOUD.dirty=true;try{localStorage.setItem(LS_KEY,JSON.stringify(EDITS));}catch(e){}
     return;
   }
@@ -783,6 +831,7 @@ function renderEditor(){
     +(function(){var le=lastEdited(c);return '<br><b>Last edited</b> '+(le?esc(fmtD(le.date))+' · '+esc(le.where):'never — as baked into the buffer app');})()+'</div></div>'
     +'<div class="acts">'+heroActs(c)+'</div></div>';
   h+='<div class="body">';
+  h+=historyHTML(c);
   /* 1 · details — the costing app's "quote / sample details": who, what, branding */
   var bt=(!s.brandType||s.brandType==='None')?'None':s.brandType;
   h+='<div class="pcsec"><h4>Details <span class="r">shared by every size'+(s.sr?' · special make from '+esc(s.sr)+(s.srVersion>1?' V'+esc(s.srVersion):''):'')+'</span></h4><div class="in">'
@@ -931,9 +980,9 @@ function chartAddCol(){var s=get(cur);if(!s||!s.chart)return;var cols=clone(char
 function chartUndo(){var s=get(cur);if(!s||!s.chart||!DRAFT)return;delete DRAFT.charts[s.chart];delete DRAFT.chartCols[s.chart];afterEdit(true);}
 function undoStyle(){ /* throw away the SAVED change: back to the buffer app copy, or delete a new style outright */
   if(!cur)return;
-  if(isNew(cur)){if(!confirm('Delete the new style '+cur+'? It has not gone to the PM.'))return;var i=BASE.order.indexOf(cur);if(i>=0)BASE.order.splice(i,1);delete EDITS.styles[cur];DRAFT=null;cur=null;}
-  else{if(!confirm('Revert '+cur+' to the buffer app copy? The saved changes to it are thrown away.'))return;delete EDITS.styles[cur];DRAFT=null;}
-  saveDraftStore();saveEdits();renderAll();
+  if(isNew(cur)){if(!confirm('Delete the new style '+cur+'? It has not gone to the PM.'))return;var i=BASE.order.indexOf(cur);if(i>=0)BASE.order.splice(i,1);delete EDITS.styles[cur];if(EDITS.history)delete EDITS.history[cur];DRAFT=null;cur=null;saveDraftStore();saveEdits();renderAll();return;}
+  if(!confirm('Revert '+cur+' to the buffer app copy? The saved changes to it are thrown away.'))return;
+  var c=cur;askReason(c,['reverted to the buffer app copy'],function(note){delete EDITS.styles[c];logChange(c,['reverted to the buffer app copy'],note,'revert');DRAFT=null;saveDraftStore();saveEdits();renderAll();});
 }
 function newStyle(){
   guardLeave(function(){
@@ -949,7 +998,7 @@ function dupStyle(){
     +'<div class="pcrow" style="grid-template-columns:1fr 1fr 1fr;margin-top:10px"><div><span class="pclab">New product code template</span><input id="dCode" class="mono" value="'+esc(cur)+'"></div><div><span class="pclab">Old colour word</span><input id="dOld" value="'+esc(guessColour(s))+'"></div><div><span class="pclab">New colour word</span><input id="dNew" placeholder="e.g. black"></div></div>',
     [{l:'Create copy',c:'btn-gold',f:function(){var nc=$('dCode').value.trim().toUpperCase(),o=$('dOld').value.trim(),nw=$('dNew').value.trim();
       if(!nc||nc===cur){$('dCode').focus();return;}if(savedStyle(nc)){alert(nc+' already exists.');return;}
-      var n=clone(s);n.code=nc;delete n.editedAt;
+      var n=clone(s);n.code=nc;delete n.editedAt;delete n.history;
       if(o&&nw){var re=new RegExp(o.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'ig');var sw=function(v){return typeof v==='string'?v.replace(re,function(m){return m===m.toUpperCase()?nw.toUpperCase():(m[0]===m[0].toUpperCase()?nw[0].toUpperCase()+nw.slice(1):nw.toLowerCase());}):v;};
         n.name=sw(n.name);n.desc=sw(n.desc);n.fabrics.forEach(function(f){f[0]=sw(f[0]);});n.trims.forEach(function(t){t[0]=sw(t[0]);t[1]=sw(t[1]);});n.mfg=n.mfg.map(sw);n.fin=n.fin.map(sw);}
       n.markerMain='';n.markerMesh='';n.alias=[];
@@ -1008,6 +1057,7 @@ function renderOp(){
   var codes=selCodes();var body=$('opBody');
   var h='<div class="pcsec"><h4>'+esc(OPS.filter(function(o){return o.id===curOp;})[0].lab)+'</h4><div class="in" id="opForm">'+opForm()+'</div></div>';
   h+='<div class="pcsec"><h4>Preview <span class="r" id="opSum"></span></h4><div class="in tw" id="opPrev"></div></div>';
+  h+='<div class="pcsec"><h4>Reason for this change <span class="r">required · kept in each style\'s change history</span></h4><div class="in"><textarea id="opWhy" rows="2" placeholder="What is changing and why, e.g. Somac thread replaced by Coats on all white jackets — supplier change"></textarea></div></div>';
   h+='<div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn btn-gold" id="opApply" onclick="opApply()">Apply to ticked styles</button></div>';
   body.innerHTML=h;
   body.querySelectorAll('#opForm input,#opForm select').forEach(function(el){el.addEventListener('input',renderOpPrev);el.addEventListener('change',renderOpPrev);});
@@ -1024,9 +1074,10 @@ function renderOpPrev(){
 }
 function opApply(){
   if(DRAFT&&isDirty()){alert(DRAFT.code+' has unsaved changes on the Styles tab. Save & close it (or close without saving) before a bulk edit.');return;}
+  var why=($('opWhy')?$('opWhy').value:'').trim();if(!why){alert('Type the reason for this change first. It is kept in the change history of every style it touches.');if($('opWhy'))$('opWhy').focus();return;}
   if(DRAFT){DRAFT=null;saveDraftStore();}
   var codes=selCodes(),done=0,pc=0;
-  codes.forEach(function(c){var trial=clone(savedStyle(c));if(!opApplyTo(trial,true))return;var s=editSaved(c);opApplyTo(s,false);settleSaved(c);done++;pc+=sizesFor(savedStyle(c)).length;});
+  codes.forEach(function(c){var trial=clone(savedStyle(c));if(!opApplyTo(trial,true))return;var before=clone(savedStyle(c));var s=editSaved(c);opApplyTo(s,false);logChange(c,sections(c,s,before),why,'bulk');settleSaved(c);done++;pc+=sizesFor(savedStyle(c)).length;});
   saveEdits();renderChg();renderChips();renderList();renderBulk();if(cur)renderEditor();
   var sum=$('opSum');if(sum)sum.textContent='Applied and saved on '+done+' style'+(done===1?'':'s')+' ('+pc+' product codes). They are waiting on Export for PM.';
 }
@@ -1036,7 +1087,7 @@ $('bq').addEventListener('input',function(e){bq=e.target.value;renderBulk();});
 function buildExport(all,withCosting){
   var codes=all?BASE.order.slice():changedCodes();
   if(withCosting&&!all)costingOnly().forEach(function(c){if(codes.indexOf(c)<0)codes.push(c);});
-  var styles=codes.map(function(c){var s=clone(savedStyle(c));s.mfg=tidySteps(s.mfg);s.fin=tidySteps(s.fin);if(isChanged(c)||BASE.costing[c])s.editedAt=s.editedAt||today();return s;});
+  var styles=codes.map(function(c){var s=clone(savedStyle(c));s.mfg=tidySteps(s.mfg);s.fin=tidySteps(s.fin);if(isChanged(c)||BASE.costing[c])s.editedAt=s.editedAt||today();var hs=historyFor(c);if(hs.length)s.history=hs;else delete s.history;return s;});
   var charts={},cols={};
   Object.keys(EDITS.charts).forEach(function(k){if(chartChanged(k))charts[k]=EDITS.charts[k];});
   Object.keys(EDITS.chartCols).forEach(function(k){if(chartChanged(k))cols[k]=EDITS.chartCols[k];});
@@ -1170,7 +1221,7 @@ function openLists(){
    saved copy of the style so the paper matches what the PM receives.                                */
 function printWO(){
   if(!cur)return;
-  if(dirtyHere(cur)){if(!confirm('Save '+cur+' first, so the printed works order matches what goes to the PM?'))return;saveStay();}
+  if(dirtyHere(cur)){if(!confirm('Save '+cur+' first, so the printed works order matches what goes to the PM?'))return;saveStay(function(){printWO();});return;}
   var s=savedStyle(cur);if(!s)return;
   var q=prompt('Print product works order for '+cur+' — for IT to set the product up in Sage.\n\nQuantity to make:','');
   if(q===null)return;q=pn(q);if(!(q>0)){alert('Enter a quantity greater than 0.');return;}
