@@ -1,6 +1,6 @@
 {
  "source": "works-order-editor",
- "savedAt": "2026-10-22T13:21:49.582Z",
+ "savedAt": "2026-11-18T13:28:23.164Z",
  "styles": {
   "OHCJ0001M": {
    "code": "OHCJ0001M",
@@ -155,17 +155,183 @@
    "tol": "",
    "editedAt": "2026-10-22",
    "importedAt": "2026-10-21"
+  },
+  "OHAPP053431": {
+   "code": "OHAPP053431",
+   "name": "1 centre pocket",
+   "desc": "Retail bib apron- One centre front mitred pocket - wide one piece neckstrap fastened with antique brass buckle and Oliver Harvey logo'd button · Horizontal stripes across the pocket - Oliver Harvey towel loop and ties · Embroidery",
+   "lectra": "APP0534 - Apron skirt, one centre mitred pocket and bib facing - Turned pocket / Neckstrap - 77cm x 10cm X 1 -",
+   "chart": "OHAPP053431-MEAS",
+   "fabrics": [
+    [
+     "NAVY/WHITE STRIPE 3110 100% COTTON 255GSM 91CM WIDE",
+     "CO6030",
+     "D4",
+     0.58,
+     2.5849
+    ]
+   ],
+   "trims": [
+    [
+     "THREAD",
+     "THREAD — COATS EPIC 80'S BUTCHERS NAVY 07912 — cost per metre",
+     30,
+     "CMP-THR-EP80-07912-15",
+     0.000714
+    ],
+    [
+     "LABEL",
+     "Oliver harvey woven label - RHSAW inside side seam under the tie. / Oliver harvey wash instructions under the woven label / 60 degree wash - No bleach - 2 dot iron - Tumble dry - Dry clean / Oliver Harvey RED TAB - LHSAW top corner of the centre front pocket - Level with the top of the pocket",
+     1,
+     "LABELOH5771",
+     0.04335
+    ],
+    [
+     "TIES",
+     "BLACK OH NON TANGLE TAPE TIE 25MM",
+     2,
+     "CMP-OH-NTT-25-03",
+     0.25171
+    ],
+    [
+     "TOWEL LOOP",
+     "BLACK OH NON TANGLE TAPE TIE 25MM TOWEL LOOP CUT AT 0.39M",
+     0.39,
+     "CMP-OH-NTT-25-03",
+     0.25171
+    ],
+    [
+     "BUCKLE",
+     "Brass effect style buckle - DCF40FLAP/Antique brass",
+     1,
+     "OHBRASSBUCKLE",
+     0.06448
+    ],
+    [
+     "BUTTON",
+     "Brass effect Oliver Harvey logo'd button - four holed",
+     1,
+     "OHBRASSBUTTON",
+     0.036
+    ],
+    [
+     "Packaging — tissue wrap",
+     "OH GREASEPROOF TISSUE 500x750 — 1 sheet per OH product",
+     1,
+     "PKG-OH-GPS-500X750-01",
+     0.07544
+    ],
+    [
+     "Packaging — masking tape",
+     "WHITE MASKING TAPE (25mmx50mm) — cost per metre (£0.645/50m roll), typical qty 0.9m",
+     0.9,
+     "PKG-TAPE-MSK-25x50-01",
+     0.0129
+    ],
+    [
+     "OH care label",
+     "OLIVER HARVEY WASH CARE LABEL - 100% cotton 60 degree wash/No bleach/2 dot iron/Tumble dry/ P dry clean",
+     1,
+     "CMP-OH-LBL-WASH-01",
+     0.032
+    ],
+    [
+     "Tax tab",
+     "Oliver Harvey Side Seam Tax Tab Red/White (23x29mm) — every OH product, qty 1",
+     1,
+     "TAXTABOH07/01",
+     0.01678
+    ],
+    [
+     "Additional label",
+     "WHITE 25MM NYLON LABEL TAPE FOR TIBARD-PRINTED LABELS — cost per metre",
+     0.03,
+     "CMP-LBL-NYL-25-01",
+     0.039067
+    ]
+   ],
+   "mfg": [
+    "Make neck strap. Bag out one end. Fold in half and enclose raw edges. Edge stitch long edge to close seam.",
+    "Set hem to pocket. double turn 1 + 2cm and topstitch 1.8cm",
+    "Set bib facing and insert neck strap. Edge of neck strap to finish in line with side of bib (no step) Neck strap set on RHSAW.",
+    "6 mm topstitch top of bib",
+    "Set bib facing. Fold in 10mm to neaten lower edge. Edge stitch lower edge of facing which forms 5.5cm topstitching to front",
+    "Armhole double turned and topstitching to finish 6mm from edge. Insert towel loop. Cut towel loop at 39cm. Fold loop in half and set towel loop 7.5cm from cut edge of left side seam as worn. Stitch down towel loop to follow armhole stitching.",
+    "Double turn hem and side seams and topstitch 12 mm. Set labels 4 cm down from finished right side seam as worn. Insert waist ties. Oliver harvey to read from left to right",
+    "Set the pocket centrally to the front with the bottom of the pocket 30 cm up from the finished hem. Edgestitch in position. Triangle tack the top corners to secure.",
+    "Fold back the ties and stitch down to secure, to the width of the tie."
+   ],
+   "fin": [
+    "Button set to top of bib left side as worn. Set 2.5cm down from finished top edge of bib and 2 cm in from finished side seam. Oliver Harvey logo at the top of the button. Stitch in thread to match button colour (black).",
+    "Set buckle.",
+    "Trim, Press, fold and wrap in Oliver Harvey tissue paper.",
+    "Oliver Harvey description label - set bottom right hand corner"
+   ],
+   "machMins": 16.5,
+   "finMins": 6,
+   "cutBatch": 25,
+   "cutMins": 15,
+   "tol": "Tolerance ± 1 cm",
+   "oneSize": true,
+   "variant": "0534BUTCH",
+   "alias": [],
+   "customer": "",
+   "markerMain": "AP0534025",
+   "markerMesh": "",
+   "markerCon": "",
+   "conFab": "",
+   "brandType": "",
+   "brandPlace": "",
+   "markerLen": 2.27,
+   "layQty": 4,
+   "meshLen": null,
+   "meshLay": null,
+   "conLen": null,
+   "conLay": null,
+   "hasMesh": false,
+   "hasCon": false,
+   "editedAt": "2026-11-18"
   }
  },
  "charts": {},
  "chartCols": {},
+ "history": {
+  "OHAPP053431": [
+   {
+    "at": "2026-11-18T12:59:48.733Z",
+    "by": "JH",
+    "what": [
+     "details",
+     "cutting room",
+     "fabrics",
+     "trims",
+     "manufacturing",
+     "finishing",
+     "times"
+    ],
+    "note": "Corrected marker details. Up-dated make up and trim codes",
+    "via": "editor"
+   },
+   {
+    "at": "2026-11-18T13:27:44.915Z",
+    "by": "JH",
+    "what": [
+     "trims",
+     "manufacturing"
+    ],
+    "note": "Added care label and are information",
+    "via": "editor"
+   }
+  ]
+ },
  "exported": {
-  "hash": "-265321381",
-  "at": "2026-10-22T13:21:49.581Z",
+  "hash": "1899887001",
+  "at": "2026-11-18T13:28:23.164Z",
   "items": {
    "OHCJ0001M": "-227390110",
-   "CJ0001L": "-581432176",
-   "chart:CJ0001L-MEAS": "-1242262846"
+   "OHAPP053431": "1864535376",
+   "OHCJ000244": "1087800050",
+   "chart:OHCJ000244-MEAS": "-1408616545"
   }
  }
 }
