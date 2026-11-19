@@ -1,6 +1,6 @@
 {
  "source": "works-order-editor",
- "savedAt": "2026-11-18T13:28:23.164Z",
+ "savedAt": "2026-11-19T14:55:11.200Z",
  "styles": {
   "OHCJ0001M": {
    "code": "OHCJ0001M",
@@ -291,6 +291,72 @@
    "hasMesh": false,
    "hasCon": false,
    "editedAt": "2026-11-18"
+  },
+  "TI003109": {
+   "code": "TI003109",
+   "name": "Cosy Club tie — coral",
+   "desc": "Standard tie — long strip of fabric worn around the neck",
+   "lectra": "UNITEDBOW",
+   "variant": "CLUBTIE",
+   "chart": "CLUBTIE-MEAS",
+   "fabrics": [
+    [
+     "CORAL POLY/COTTON 200G (X133 COLOUR 161)",
+     "PC2109",
+     "B3",
+     0.19,
+     1.8945
+    ],
+    [
+     "WHITE SOFT INTERLINING QUALITY CE1023",
+     "FUS4420",
+     "D7",
+     0.32,
+     0.44
+    ]
+   ],
+   "trims": [
+    [
+     "Thread",
+     "THREAD — COATS EPIC 80'S COTAL 08707— cost per metre",
+     8,
+     "CMP-THR-EP80-08707-109",
+     0.000714
+    ]
+   ],
+   "mfg": [
+    "Fuse tie",
+    "Set tie ends — turn and press",
+    "Join top and lower tie together",
+    "Fold in half. Fold in edges 1cm and edgestitch closed."
+   ],
+   "fin": [
+    "Check, trim, press and fold",
+    "Set into bag — product sticker to bottom right-hand corner of bag"
+   ],
+   "machMins": 8.2,
+   "finMins": 2.5,
+   "cutBatch": 36,
+   "cutMins": 15,
+   "oneSize": true,
+   "alias": [],
+   "tol": "",
+   "customer": "",
+   "markerMain": "TI003002 ONE WAY LAY - RIGHT SIDE OF FABRIC FACE UP",
+   "markerMesh": "",
+   "markerCon": "TI003FUS12",
+   "conFab": "TI003FUS12 ONE WAY LAY - GLUE SIDE FACE UP",
+   "brandType": "",
+   "brandPlace": "",
+   "markerLen": 2.16,
+   "layQty": 12,
+   "meshLen": null,
+   "meshLay": null,
+   "conLen": 3.82,
+   "conLay": 12,
+   "hasMesh": false,
+   "hasCon": true,
+   "editedAt": "2026-11-19"
   }
  },
  "charts": {},
@@ -320,6 +386,20 @@
      "manufacturing"
     ],
     "note": "Added care label and are information",
+    "via": "editor"
+   }
+  ],
+  "TI003109": [
+   {
+    "at": "2026-11-19T14:55:11.200Z",
+    "by": "JH",
+    "what": [
+     "cutting room",
+     "fabrics",
+     "trims",
+     "manufacturing"
+    ],
+    "note": "Added marker details, fabric and interlining to be one way lay up and added measurements.",
     "via": "editor"
    }
   ]
